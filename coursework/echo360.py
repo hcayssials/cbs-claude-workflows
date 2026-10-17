@@ -340,7 +340,7 @@ def _pull_course(ws, cid, cfg, frame, syl, ledger, keep_vtt):
         ledger[media_id] = {"course_id": cid, "name": name, "session": n,
                             "status": "downloaded", "saved_to": ws.relpath(txt)}
         save_json(ws.echo_ledger_file, ledger)
-        print(f"  saved  {ws.relpath(txt)}  ({len(open(txt, encoding="utf-8").read().split()):,} words)")
+        print(f"  saved  {ws.relpath(txt)}  ({len(open(txt, encoding='utf-8').read().split()):,} words)")
         got += 1
     return got
 

@@ -6,8 +6,8 @@ say:
 
 > Set up my courses using "Set up with Claude.md".
 
-Claude will ask you a few things along the way. It takes about 10 minutes. You'll need
-your Columbia login for CourseWorks.
+Claude will ask you a few things along the way. It takes about 10 minutes, on a Mac or
+a Windows PC. You'll need your Columbia login for CourseWorks.
 
 ---
 
@@ -26,7 +26,7 @@ course folders.
 
 1. **Never handle the Canvas token in the chat.** It gives full access to the user's
    Canvas account, and chat history is stored. The user pastes it into a terminal
-   (Step 3). If they paste it in the chat anyway, don't repeat it or use it. Tell them to
+   (Step 3); you never print, read or repeat it. If they paste it in the chat anyway, don't repeat it or use it. Tell them to
    delete that token in Canvas (Account → Settings → Approved Integrations) and make a new one.
 2. **Ask before** adding courses, before the first real download, and before editing any
    file outside this folder and `~/cbs-claude-workflows` (for example `~/.zshrc`).
@@ -38,15 +38,31 @@ course folders.
 
 ### Step 1: Check the computer
 
+Works on **Mac and Windows** (and Linux). Find out which, then check Python 3.9+ and git.
+
+**Mac:**
+
 ```bash
 python3 --version && git --version
 ```
 
-- Python must be 3.9 or newer. On a Mac, if either command is missing, run
-  `xcode-select --install`. The user must click **Install** in the window that appears,
-  so tell them, then wait for them to say it's done and check again.
-- This guide assumes macOS or Linux. On Windows, stop and tell the user it isn't
-  supported yet.
+If either is missing, run `xcode-select --install`. The user must click **Install** in the
+window that appears, so tell them, then wait for them to say it's done and check again.
+
+**Windows** (Claude Code runs commands in Git Bash, so git is already there):
+
+```bash
+py --version || python --version
+```
+
+- If neither prints a version (or `python` opens the Microsoft Store), Python isn't
+  installed. Ask the user to install it: either let you run
+  `winget install -e --id Python.Python.3.12`, or download it from python.org and tick
+  **"Add python.exe to PATH"** on the first installer screen. Then check again.
+- Below, `PY` means whichever worked: `py`, `python` or (Mac) `python3`.
+- Suggest a term folder near the top of their drive (e.g. `G:\My Drive\School\B-term`).
+  Windows limits a file's full path to 260 characters. The tool shortens long file
+  names to fit, but deep folders leave less room.
 
 ### Step 2: Get the tool
 
@@ -62,29 +78,23 @@ Otherwise:
 git clone https://github.com/hcayssials/cbs-claude-workflows.git ~/cbs-claude-workflows
 ```
 
-If the clone fails with an authentication or "not found" error, the repository is
-private and this user hasn't been given access. Stop and tell them to ask the person who
-sent them this file to add their GitHub username, or to send them the tool as a zip. If
-they have a zip, unzip it so the files sit at `~/cbs-claude-workflows/README.md`, etc.
-
 Then install it. Before you run it, tell the user: *"I'm about to run the tool's
 installer. Claude may ask you to approve this, because it runs code that was just
 downloaded. That's expected: please approve it."*
 
 ```bash
-~/cbs-claude-workflows/setup.sh
+PY ~/cbs-claude-workflows/install.py
 ```
 
-This installs one Python package (`requests`), puts a `coursework` command in
-`~/.local/bin`, and installs two Claude skills in `~/.claude/skills/`.
+This installs one Python package (`requests`), a `coursework` command, and two Claude
+skills in `~/.claude/skills/`. It ends by printing **the exact command for this
+computer**, also saved in `~/.config/coursework/command.txt`. For the rest of this setup,
+`coursework` means that command: use it as printed (it works in Git Bash on Windows too).
 
-- If it prints a line telling them to add `~/.local/bin` to their PATH, **ask** whether you
-  may add it to `~/.zshrc`. Either way, for the rest of this setup call the tool by its
-  full path: `~/cbs-claude-workflows/bin/coursework`. Below, `coursework` means that path.
-- If the installer is blocked and the user doesn't approve it, stop: nothing else works
-  without it.
+If the installer is blocked and the user doesn't approve it, stop: nothing else works
+without it.
 
-### Step 3: The Canvas token (the user copies it, you never see it)
+### Step 3: The Canvas token (the user pastes it, you never see it)
 
 Explain to the user, in roughly these words:
 
@@ -92,27 +102,24 @@ Explain to the user, in roughly these words:
 > this tool. In CourseWorks: click **Account** (top left) → **Settings** → scroll down to
 > **Approved Integrations** → **+ New Access Token**. For Purpose, write "coursework sync".
 > Leave the expiry blank or set it to the end of term, then click **Generate Token** and
-> **copy** it. Don't paste it here. Just tell me "copied" and I'll save it straight from
-> your clipboard without displaying it.
+> **copy** it. Don't paste it here in the chat. I'll open a terminal for you: paste it
+> there and press Enter. Nothing appears as you paste; that's normal.
 
-When they say it's copied, run:
+Open a terminal tab for them, in this folder, running the token command. Use the app's
+run-in-terminal tool if you have one; otherwise ask them to open Terminal (Mac) or
+PowerShell (Windows) and paste the command.
 
-```bash
-coursework token --from-clipboard
-```
+- Mac / Linux, or Git Bash on Windows: `~/.local/bin/coursework token`
+- Windows PowerShell: `& "$env:USERPROFILE\.local\bin\coursework.cmd" token`
 
-It reads the clipboard without printing anything, checks the token with Canvas, saves it
-to `~/.config/coursework/canvas_token` (outside their Drive, readable only by them), and
-clears the clipboard. Tell them the result in one line:
+It strips invisible characters a copy can pick up, checks the token with Canvas, and,
+if something's wrong (nothing pasted, partial copy, deleted token), says so and **asks
+again**, up to three times. Once it prints `Token saved … accepted by Canvas`, go on.
+It's stored in `~/.config/coursework/canvas_token`, outside their Drive.
 
-- `Token saved … accepted by Canvas`: done, go on to Step 4.
-- `No token found on the clipboard` or `too short`: they copied something else. Ask them
-  to click Canvas's copy button again and say "copied".
-- `Canvas rejected that token`: it was copied incompletely, or deleted. They should make
-  a new one.
-
-Don't ask them to paste the token into a terminal: hidden password prompts silently
-receive nothing in some terminals.
+If pasting keeps failing in that terminal, use the backup: ask them to copy the token
+again and say "copied", then run `coursework token --from-clipboard` yourself. It reads
+the clipboard without printing anything, checks it, saves it and clears the clipboard.
 
 ### Step 4: Find their courses
 
@@ -236,7 +243,9 @@ so it's safe to delete if they'd like the folder clean.
 
 | Symptom | Fix |
 |---|---|
-| `command not found: coursework` | Use the full path `~/cbs-claude-workflows/bin/coursework` |
+| `command not found: coursework` | Use the command in `~/.config/coursework/command.txt` |
+| Windows: `python` opens the Microsoft Store | Python isn't installed: Step 1 |
+| Windows: `PATH-TOO-LONG` note | The term folder is too deep: `coursework rename` the course to something shorter, or move the term folder nearer the top of the drive |
 | `Canvas said 401` | The token is wrong or expired: Step 3 again |
 | `verify` lists files as WOULD-ADD after a deliberate small cap | The cap wasn't saved: `coursework init --max-mb <N>`, then `verify` again |
 | "Did it get everything?" | Yes, within the cap. Besides the Files tab, sync scans the Syllabus page, calendar events, pages, modules, announcements and assignment descriptions for linked files. It skips decorative images and duplicate uploads. `LOCKED` notes are files students can't download. |

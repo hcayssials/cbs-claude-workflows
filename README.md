@@ -27,14 +27,14 @@ Built for Columbia CourseWorks. It works for any Canvas school with one setting 
 
 ## Setup (5 minutes, once)
 
-You need a Mac (or Linux) with Python 3.9+ (`python3 --version`) and git.
+Works on **Mac and Windows** (and Linux). You need Python 3.9+ and git.
 
 ```bash
 git clone https://github.com/hcayssials/cbs-claude-workflows.git ~/cbs-claude-workflows
 ```
 
 ```bash
-~/cbs-claude-workflows/setup.sh
+python3 ~/cbs-claude-workflows/install.py      # Windows: py ~/cbs-claude-workflows/install.py
 ```
 
 Then go to the folder you want your courses in (a new folder, or your existing term
@@ -63,9 +63,9 @@ folder in the Claude desktop app's Code tab, and say *"Set up my courses using S
 with Claude.md"*. Claude gets this tool, has you paste your token in a terminal (never
 the chat), asks which courses you want, then downloads and checks everything.
 
-### Already ran setup.sh? Let Claude take it from there
+### Already installed? Let Claude take it from there
 
-After `setup.sh`, open Claude Code in your term folder and say:
+After `install.py`, open Claude Code in your term folder and say:
 
 > Set up coursework sync in this folder for my B-term classes.
 
@@ -167,7 +167,7 @@ Echo360 sits behind your UNI + Duo login, so this part can't run unattended. It'
 separate on purpose: an expired login never blocks the file sync.
 
 ```bash
-~/cbs-claude-workflows/setup.sh --echo360          # once: installs a headless browser
+python3 ~/cbs-claude-workflows/install.py --echo360   # once: installs a headless browser (Windows: py …)
 ```
 
 ```bash
@@ -193,7 +193,7 @@ when it has expired. Some courses use Zoom and have no Echo360 at all.
 
 ## Master Takeaways
 
-`setup.sh` installs the skill. In Claude Code, from your term folder:
+`install.py` installs the skill. In Claude Code, from your term folder:
 
 > Make the master takeaways for Product Management.
 
