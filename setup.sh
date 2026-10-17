@@ -6,8 +6,12 @@ set -euo pipefail
 REPO="$(cd "$(dirname "$0")" && pwd)"
 
 echo "1/3  Python package: requests"
-python3 -m pip install --quiet --user -r "$REPO/requirements.txt" 2>/dev/null \
-  || python3 -m pip install --quiet -r "$REPO/requirements.txt"
+pip_install() {  # --user first; Homebrew Pythons refuse that unless told it's fine
+  python3 -m pip install --quiet --user -r "$1" 2>/dev/null \
+    || python3 -m pip install --quiet --user --break-system-packages -r "$1" 2>/dev/null \
+    || python3 -m pip install --quiet -r "$1"
+}
+python3 -c "import requests" 2>/dev/null || pip_install "$REPO/requirements.txt"
 
 echo "2/3  The \`coursework\` command"
 mkdir -p "$HOME/.local/bin"
@@ -28,8 +32,7 @@ done
 
 if [[ "${1:-}" == "--echo360" ]]; then
   echo "+    Echo360 add-on: Playwright + Chromium (~150 MB, outside your Drive)"
-  python3 -m pip install --quiet --user -r "$REPO/requirements-echo360.txt" 2>/dev/null \
-    || python3 -m pip install --quiet -r "$REPO/requirements-echo360.txt"
+  pip_install "$REPO/requirements-echo360.txt"
   python3 -m playwright install chromium
 fi
 

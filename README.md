@@ -54,7 +54,14 @@ It's stored in `~/.config/coursework/`, outside your Drive, readable only by you
 
 That's all the setup. Nothing in this repo needs editing.
 
-### Prefer to let Claude do it?
+### Easiest: let Claude do all of it
+
+Put [`Set up with Claude.md`](Set%20up%20with%20Claude.md) in an empty folder, open that
+folder in the Claude desktop app's Code tab, and say *"Set up my courses using Set up
+with Claude.md"*. Claude gets this tool, has you paste your token in a terminal (never
+the chat), asks which courses you want, then downloads and checks everything.
+
+### Already ran setup.sh? Let Claude take it from there
 
 After `setup.sh`, open Claude Code in your term folder and say:
 
