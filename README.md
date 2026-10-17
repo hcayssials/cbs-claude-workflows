@@ -84,6 +84,28 @@ Or just tell Claude "sync my classes". A new course turns up mid-term?
 `coursework courses`, then `coursework add <id>`. Dropped one? `coursework drop "<name>"`
 (your files are kept).
 
+## What do I need for my next class?
+
+```bash
+coursework next              # or: coursework next pm
+```
+
+For each course's next class: the professor's prep notes from the Canvas calendar, with
+every linked reading shown as **your local file** (or flagged if it isn't synced yet),
+plus everything due in the next 7 days across all courses. Or ask Claude "what do I need
+for Thursday?". `--save` also writes it to `Up next.md` (one file, overwritten each time).
+
+```
+DUE IN THE NEXT 7 DAYS
+  Tue 20 Oct 5pm · US Healthcare · Final Exam (100p)
+
+NEXT CLASS, PER COURSE
+  Transforming Healthcare Services · S1 The Business of Healthcare · Tue 27 Oct, 10:50am–12:20pm
+    Required Reading: US Healthcare System Profile (📄 Class 1_ …/Commonwealth Fund.pdf) …
+  Negotiations · S7 feedback / interpersonal styles · Wed 28 Oct, 9am–12:15pm
+    No prep notes on the Canvas calendar; check the syllabus.
+```
+
 ## What your folder looks like
 
 Your term folder holds your course folders and one hidden `.coursework/` folder.
@@ -106,9 +128,11 @@ Naming rules (applied for you):
 - **Course folders** use the real course name, without the professor or term code,
   even if you've nicknamed the course in Canvas.
 - **`S03 …` prefixes** only when a Canvas calendar event for session 3 links that exact
-  file. Never guessed.
-- **Lecture videos** are never downloaded. Files over 100 MB are skipped and listed
-  (`coursework sync "<course>" --max-mb 0` gets them).
+  file. Never guessed. Each sync says how many files it prefixed per course; the list,
+  with the calendar event each one came from, is in `.coursework/changes.log`.
+- **Lecture videos** are never downloaded. Files over 30 MB (usually slide decks with
+  video in them) are skipped and named in the summary; `coursework sync "<course>" --max-mb 0`
+  gets them.
 - **Rename, move or delete freely.** The sync remembers every file by its Canvas id: it
   won't re-download what you deleted, and a professor's update overwrites your renamed
   copy instead of creating a second one. After moving files, run `coursework verify --fix`.
@@ -132,19 +156,18 @@ coursework echo360 login                           # UNI + Duo, then press Enter
 coursework echo360 setup "Product Management"      # once per course
 ```
 
-Each week:
-
-```bash
-coursework echo360 status    # no login needed: says which courses have had a class since your last transcript
-```
+After class:
 
 ```bash
 coursework echo360 pull
 ```
 
-The login lasts a few days. `pull` tells you when it has expired; `status` tells you
-whether there's anything to pull before you bother logging in. Some courses use Zoom
-and have no Echo360 at all.
+`pull` checks the Canvas calendar **before** touching Echo360. If no class has finished
+(at least 2 hours ago) since your last transcript, it stops there: no browser, no login.
+Pulled Tuesday, asking Wednesday, next class Thursday? It says so and does nothing. If a
+class was never recorded, it stops asking about it a day later. `coursework echo360 status`
+shows the same check without pulling. The login lasts a few days, and `pull` tells you
+when it has expired. Some courses use Zoom and have no Echo360 at all.
 
 ## Master Takeaways
 
@@ -210,7 +233,8 @@ tool id, change `echo360_tool_id` in `.coursework/config.json`.
 | `coursework drop <course>` | stop syncing a course (keeps files) |
 | `coursework sync [course…] [--dry-run] [--max-mb N]` | pull new and updated material |
 | `coursework verify [--fix]` | confirm nothing's left on Canvas and nothing's missing |
+| `coursework next [course…] [--full] [--save]` | prep notes and deadlines for each next class |
 | `coursework ignore <file…> [--delete]` | never re-download these |
-| `coursework echo360 login\|setup\|status\|pull` | lecture transcripts |
+| `coursework echo360 login\|setup\|status\|pull [--force]` | lecture transcripts |
 
 Problems? See [docs/troubleshooting.md](docs/troubleshooting.md).

@@ -45,10 +45,12 @@ class Run:
         self.ws = ws
         self.canvas = canvas
         self.dry_run = dry_run
-        self.max_mb = ws.config.get("max_mb", 100) if max_mb is None else max_mb
+        self.max_mb = ws.config.get("max_mb", 30) if max_mb is None else max_mb
         self.quiet = quiet
         self.changes = []   # (folder, kind, detail): things that changed or would
         self.notes = []     # (folder, kind, detail): worth knowing, not a change
+        self.details = []   # (folder, kind, detail): log only, too noisy to print
+        self._prefixed = {}
 
     def say(self, msg):
         if not self.quiet:
@@ -59,6 +61,20 @@ class Run:
 
     def note(self, folder, kind, detail):
         self.notes.append((folder, kind, detail))
+
+    def prefixed(self, folder, items):
+        self._prefixed.setdefault(folder, []).extend(items)
+
+    def flush_prefixed(self, folder):
+        """One summary line per course; the per-file list goes to the log."""
+        items = self._prefixed.pop(folder, [])
+        if not items:
+            return
+        verb = "would get" if self.dry_run else "got"
+        self.note(folder, "PREFIXED", f"{len(items)} new file(s) {verb} a session prefix from "
+                                      f"the Canvas calendar (full list in the log)")
+        for name, where in items:
+            self.details.append((folder, "PREFIXED", f'{name}  (from "{where}")'))
 
 
 # -----------------------------------------------------------------------------
@@ -89,6 +105,7 @@ def sync_course(run, cid, cfg):
     sync_linked(run, cid, cfg, {k: v for k, v in linked.items() if k not in tab_ids})
     if assignments is not None:
         write_assignments(run, cid, cfg, assignments)
+    run.flush_prefixed(folder)
 
 
 def _safe_list(run, folder, path, params, what):
@@ -207,7 +224,7 @@ def resolve_dest_dir(cfg, canvas_subpath, filename, flattened):
 def sync_files(run, cid, cfg, files, folders, linked):
     folder = cfg["folder"]
     counts = dict(new=0, updated=0, unchanged=0, excluded=0, large=0, failed=0)
-    flattened = set()
+    flattened, prefixed = set(), []
     for f in files:
         fid = str(f["id"])
         name = clean_file_name(f.get("display_name") or "", f.get("filename"))
@@ -215,12 +232,14 @@ def sync_files(run, cid, cfg, files, folders, linked):
         target = resolve_dest_dir(cfg, folders.get(f.get("folder_id"), ""), name, flattened)
         if target is not None:
             target = os.path.join(folder, *[p for p in target.split("/") if p])
-        _sync_one(run, cid, folder, fid, f, with_session_prefix(name, session),
-                  target, "files", counts)
+        final = with_session_prefix(name, session)
+        if _sync_one(run, cid, folder, fid, f, final, target, "files", counts) and final != name:
+            prefixed.append((final, linked[fid]["where"]))
     if files or counts["failed"]:
         run.say(f"  files: {counts['new']} new, {counts['updated']} updated, "
                 f"{counts['unchanged']} unchanged, {counts['excluded']} excluded, "
                 f"{counts['large']} over {run.max_mb:g} MB, {counts['failed']} failed")
+    run.prefixed(folder, prefixed)
     for path in sorted(flattened):
         run.note(folder, "FLATTENED", f"Canvas folder deeper than {MIRROR_DEPTH} levels: "
                                       f"{path} (add a route to file it properly)")
@@ -230,6 +249,7 @@ def sync_linked(run, cid, cfg, linked):
     """Files linked from calendar/pages/assignments but absent from the Files tab."""
     folder = cfg["folder"]
     counts = dict(new=0, updated=0, unchanged=0, excluded=0, large=0, failed=0)
+    prefixed = []
     for fid, ref in sorted(linked.items()):
         entry = run.ws.ledger.get(fid)
         if entry and entry.get("status") == "ignored":
@@ -252,8 +272,11 @@ def sync_linked(run, cid, cfg, linked):
         # An event without a session number ("Midterm review") gives no prefix.
         session = ref["session"] if cfg.get("session_prefix", True) else None
         target = os.path.join(folder, LINKED_DIRS[ref["source"]])
-        _sync_one(run, cid, folder, fid, info, with_session_prefix(name, session),
-                  target, f"linked:{ref['source']}", counts)
+        final = with_session_prefix(name, session)
+        if _sync_one(run, cid, folder, fid, info, final, target,
+                     f"linked:{ref['source']}", counts) and final != name:
+            prefixed.append((final, ref["where"]))
+    run.prefixed(folder, prefixed)
     if any(counts[k] for k in ("new", "updated", "failed", "large")):
         run.say(f"  linked files (not on the Files tab): {counts['new']} new, "
                 f"{counts['updated']} updated, {counts['large']} over size limit, "
@@ -261,7 +284,8 @@ def sync_linked(run, cid, cfg, linked):
 
 
 def _sync_one(run, cid, folder, fid, f, name, target_dir, source, counts):
-    """Shared download logic for Files-tab and linked files."""
+    """Shared download logic for Files-tab and linked files.
+    Returns True only when a new file was (or, in a dry run, would be) added."""
     ws, ledger = run.ws, run.ws.ledger
     entry = ledger.get(fid)
     unchanged = (entry is not None and entry.get("size") == f.get("size")
@@ -311,7 +335,7 @@ def _sync_one(run, cid, folder, fid, f, name, target_dir, source, counts):
     if run.dry_run:
         run.change(folder, "WOULD-UPDATE" if was_known else "WOULD-ADD", rel)
         counts["updated" if was_known else "new"] += 1
-        return
+        return not was_known
 
     if dest != kept:
         dest = unique_path(dest)
@@ -333,6 +357,7 @@ def _sync_one(run, cid, folder, fid, f, name, target_dir, source, counts):
     ws.save_ledger()
     counts["updated" if was_known else "new"] += 1
     time.sleep(DOWNLOAD_PAUSE)
+    return not was_known
 
 
 # -----------------------------------------------------------------------------
@@ -344,10 +369,12 @@ class _HTMLToText(html.parser.HTMLParser):
 
     def __init__(self):
         super().__init__(convert_charrefs=True)
-        self.out, self._href = [], None
+        self.out, self._href, self._skip = [], None, 0
 
     def handle_starttag(self, tag, attrs):
-        if tag in ("p", "div", "br", "tr"):
+        if tag in ("script", "style"):
+            self._skip += 1
+        elif tag in ("p", "div", "br", "tr"):
             self.out.append("\n")
         elif tag in ("h1", "h2", "h3", "h4", "h5", "h6"):
             self.out.append("\n\n### ")
@@ -360,14 +387,17 @@ class _HTMLToText(html.parser.HTMLParser):
             self.out.append(" | ")
 
     def handle_endtag(self, tag):
-        if tag == "a":
+        if tag in ("script", "style"):
+            self._skip = max(0, self._skip - 1)
+        elif tag == "a":
             self.out.append(f"]({self._href})" if self._href else "]")
             self._href = None
         elif tag in ("p", "div", "h1", "h2", "h3", "h4", "h5", "h6", "tr"):
             self.out.append("\n")
 
     def handle_data(self, data):
-        self.out.append(data)
+        if not self._skip:
+            self.out.append(data)
 
     def text(self):
         txt = "".join(self.out).replace("\xa0", " ")
@@ -438,7 +468,7 @@ def write_change_log(run):
         fh.write(f"\n===== {stamp}{'  (dry run)' if run.dry_run else ''}\n")
         if not run.changes and not run.notes:
             fh.write("  no changes\n")
-        for folder, kind, detail in run.changes + run.notes:
+        for folder, kind, detail in run.changes + run.notes + run.details:
             fh.write(f"  {kind:<12} {folder:<34} {detail}\n")
 
 

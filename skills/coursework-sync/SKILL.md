@@ -41,12 +41,15 @@ directory. Pass `--root "<folder>"` when you're running from somewhere else.
 | "I dropped X" | `coursework drop "X"` (keeps the files) |
 | "get the big slide deck" | `coursework sync "<course>" --max-mb 0` |
 | "I moved some files, verify fails" | `coursework verify --fix` |
-| "new transcripts?" | `coursework echo360 status` first. It needs no login and says whether a class has happened since the last transcript. Only then `coursework echo360 pull`, and only ask the user to log in if `pull` says the login has expired. |
+| "what do I need for Thursday?" / "what's next?" | `coursework next` (or `coursework next pm`). Read it back briefly, then offer: "Want me to save this as Up next.md?" (`--save`) |
+| "new transcripts?" | `coursework echo360 pull`. It checks the Canvas calendar first and opens no browser if no class has finished since the last transcript. Only ask the user to log in if `pull` says the login has expired. Don't use `--force` unless they ask. |
 
 ## Reading the output
 
 - `note LOCKED`: a professor linked a file that students can't download. Nothing to fix.
-- `note TOO-LARGE`: skipped because it's over 100 MB. Mention it and offer `--max-mb 0`.
+- `note TOO-LARGE`: skipped because it's over 30 MB. Name the file and offer `--max-mb 0`.
+- `note PREFIXED`: new files were named `S03 …` from the Canvas calendar. Say how many,
+  and offer to show the list: `grep PREFIXED .coursework/changes.log | tail -40`.
 - `note FLATTENED`: Canvas folders deeper than 3 levels were collapsed. Offer to add a
   `routes` entry for that course (see the README's "Routing" section).
 - `note NO-ACCESS` on a course's Files tab: usually a dropped course. Offer `coursework drop`.

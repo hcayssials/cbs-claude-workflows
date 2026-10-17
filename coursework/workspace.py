@@ -20,6 +20,7 @@ CANVAS_TOKEN in the environment overrides the token file.
 
 import json
 import os
+import re
 import stat
 import sys
 
@@ -30,7 +31,7 @@ TOKEN_FILE = os.path.join(USER_DIR, "canvas_token")
 DEFAULT_CONFIG = {
     "canvas_url": "https://courseworks2.columbia.edu",
     "term": None,
-    "max_mb": 100,
+    "max_mb": 30,
     "echo360_tool_id": 18261,
     "courses": {},
 }
@@ -109,6 +110,10 @@ class Workspace:
         if len(exact) == 1:
             return exact[0]
         hits = [cid for cid, c in courses.items() if key and key in norm(c["folder"])]
+        if not hits:  # initials: "pm" -> Product Management, "tip" -> Trade and Industrial Policies
+            initials = lambda f: "".join(w[0] for w in re.findall(r"[A-Za-z]+", f.rsplit("/", 1)[-1])
+                                         if w.lower() not in ("and", "of", "the", "for", "in")).lower()
+            hits = [cid for cid, c in courses.items() if initials(c["folder"]) == key]
         if len(hits) != 1:
             known = ", ".join(c["folder"] for c in courses.values()) or "none yet"
             sys.exit(f"'{arg}' matches {len(hits)} courses. Set up here: {known}")

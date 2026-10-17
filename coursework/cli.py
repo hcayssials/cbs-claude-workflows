@@ -4,6 +4,7 @@
   coursework sync                 pull everything new; safe to run any time
   coursework sync --dry-run       show what would change, download nothing
   coursework verify               check the folder is complete (run after a sync)
+  coursework next                 what you need for each course's next class
   coursework courses              list your Canvas courses this term
   coursework add <id> [--as NAME] start syncing a course
   coursework drop <course>        stop syncing a course (keeps its files)
@@ -230,6 +231,21 @@ def cmd_verify(args):
     sys.exit(0 if ok else 1)
 
 
+def cmd_next(args):
+    from . import upnext
+    from .workspace import load_json
+    ws = get_ws(args)
+    cids = selected_courses(ws, args.courses)
+    plan = upnext.build(canvas_for(ws), {cid: ws.config["courses"][cid] for cid in cids},
+                        ws.ledger, load_json(ws.echo_ledger_file, {}), ws.root)
+    print(upnext.render(plan, full=args.full))
+    if args.save:
+        path = ws.abspath("Up next.md")
+        with open(path, "w") as fh:
+            fh.write(upnext.render(plan, markdown=True))
+        print(f"Saved to {ws.relpath(path)} (overwritten each time).")
+
+
 def cmd_ignore(args):
     ws = get_ws(args)
     reason = args.reason or "excluded by hand"
@@ -283,8 +299,14 @@ def main(argv=None):
     p = sub.add_parser("sync", help="pull new and updated material")
     p.add_argument("courses", nargs="*", help="course ids or partial folder names")
     p.add_argument("--dry-run", action="store_true")
-    p.add_argument("--max-mb", type=float, help="skip bigger files; 0 = no limit (default 100)")
+    p.add_argument("--max-mb", type=float, help="skip bigger files; 0 = no limit (default 30)")
     p.set_defaults(fn=cmd_sync)
+
+    p = sub.add_parser("next", help="what you need for each course's next class")
+    p.add_argument("courses", nargs="*")
+    p.add_argument("--full", action="store_true", help="don't shorten long prep notes")
+    p.add_argument("--save", action="store_true", help='also write "Up next.md" in the term folder')
+    p.set_defaults(fn=cmd_next)
 
     p = sub.add_parser("verify", help="check nothing is missing")
     p.add_argument("courses", nargs="*")
@@ -302,6 +324,7 @@ def main(argv=None):
     p.add_argument("courses", nargs="*")
     p.add_argument("--group", help="your section/cohort, e.g. 001 (setup only)")
     p.add_argument("--keep-vtt", action="store_true", help="also keep the raw .vtt files")
+    p.add_argument("--force", action="store_true", help="pull: check Echo360 even if no class has finished")
     p.set_defaults(fn=lambda a: __import__("coursework.echo360", fromlist=["x"]).main(a))
 
     args = ap.parse_args(argv)

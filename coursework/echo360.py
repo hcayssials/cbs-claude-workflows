@@ -24,10 +24,15 @@ import json
 import os
 import re
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from .naming import sanitize, session_number
 from .workspace import USER_DIR, Workspace, load_json, save_json, write_secret
+
+# A class counts once it ended this long ago (transcripts take a while to appear),
+# and a session still missing a day after a pull is treated as never recorded.
+GRACE = timedelta(hours=2)
+GIVE_UP = timedelta(hours=24)
 
 ECHO = "https://echo360.org"
 TRANSCRIPT = "/api/ui/echoplayer/lessons/{lesson}/medias/{media}/transcript-file?format=vtt"
@@ -197,53 +202,91 @@ def cmd_setup(ws, args):
             print(f"{cfg['folder']}: set up (section {section[:8]}…, group {group or 'all'}).")
 
 
-def classes_held(ws, canvas, cid):
-    """Highest session number on the Canvas calendar that has already started."""
-    now = datetime.now(timezone.utc).isoformat()
-    held = set()
+def last_class(canvas, cid, now):
+    """(session number, end time) of the latest numbered class that ended GRACE ago."""
+    best = None
     for ev in canvas.paginate("/calendar_events", {"context_codes[]": f"course_{cid}",
                                                    "type": "event", "all_events": "true"}):
-        if (ev.get("start_at") or "9") < now:
-            n = session_number(ev.get("title"))
-            if n:
-                held.add(n)
-    return max(held) if held else None
+        n = session_number(ev.get("title"))
+        end = ev.get("end_at") or ev.get("start_at")
+        if not n or not end:
+            continue
+        end = datetime.fromisoformat(end.replace("Z", "+00:00"))
+        if end + GRACE <= now and (best is None or n > best[0]):
+            best = (n, end)
+    return best
+
+
+def due_courses(ws, names):
+    """Which courses could have a new transcript, decided from Canvas alone (no login).
+
+    A course is due when its latest finished class is newer than its newest
+    transcript, unless a pull already ran a day or more after that class and
+    found nothing (the professor didn't record it)."""
+    from .cli import canvas_for
+    canvas = canvas_for(ws)
+    ledger = load_json(ws.echo_ledger_file, {})
+    now = datetime.now(timezone.utc)
+    cids = [ws.resolve_course(n) for n in names] if names else \
+        [cid for cid, c in ws.config["courses"].items() if c.get("echo360") and not c.get("skip")]
+    report = []
+    for cid in cids:
+        cfg = ws.config["courses"][cid]
+        if not cfg.get("echo360"):
+            report.append((cid, "setup", None, None))
+            continue
+        have = max([e.get("session") or 0 for e in ledger.values()
+                    if e.get("course_id") == cid] or [0])
+        held = last_class(canvas, cid, now)
+        checked = ledger.get(f"checked:{cid}") or {}
+        if held is None:
+            state = "unknown"
+        elif held[0] <= have:
+            state = "ok"
+        elif (checked.get("session", 0) >= held[0]
+              and checked.get("at", "") >= (held[1] + GIVE_UP).isoformat()):
+            state = "not-recorded"
+        else:
+            state = "due"
+        report.append((cid, state, held[0] if held else None, have))
+    return report
+
+
+def print_report(ws, report):
+    for cid, state, held, have in report:
+        folder = ws.config["courses"][cid]["folder"]
+        msg = {"due": f"session {held} has happened; you have up to {have or 'none'}",
+               "ok": f"up to date (session {have})",
+               "not-recorded": f"session {held} seems not to have been recorded; skipping it",
+               "unknown": "calendar has no numbered sessions; will check Echo360",
+               "setup": "not set up for Echo360 (`coursework echo360 setup`)"}[state]
+        print(f"  {'PULL' if state in ('due', 'unknown') else '-':<5} {folder}: {msg}")
 
 
 def cmd_status(ws, args):
     """Tells you whether a login is worth it, before you do UNI + Duo."""
-    from .cli import canvas_for
-    canvas = canvas_for(ws)
-    ledger = load_json(ws.echo_ledger_file, {})
-    names = args.courses or [cid for cid, c in ws.config["courses"].items()
-                             if c.get("echo360") and not c.get("skip")]
-    if not names:
-        sys.exit("No courses set up for Echo360 yet: `coursework echo360 setup <course>`.")
-    due = []
-    for name in names:
-        cid = ws.resolve_course(name)
-        folder = ws.config["courses"][cid]["folder"]
-        have = max([e["session"] for e in ledger.values()
-                    if e.get("course_id") == cid and e.get("session")] or [0])
-        held = classes_held(ws, canvas, cid)
-        if held is None:
-            print(f"  ?     {folder}: calendar has no numbered sessions; try a pull")
-        elif held > have:
-            due.append(folder)
-            print(f"  PULL  {folder}: session {held} has happened, you have up to {have or 'none'}")
-        else:
-            print(f"  ok    {folder}: up to date (session {have})")
+    report = due_courses(ws, args.courses)
+    print_report(ws, report)
+    due = [r for r in report if r[1] in ("due", "unknown")]
     print("\nNothing new to pull: no need to log in." if not due else
-          "\nTranscripts usually appear a few hours after class.")
+          "\n`coursework echo360 pull` will fetch these.")
 
 
 def cmd_pull(ws, args):
+    """Checks the Canvas calendar first and only opens a browser (and so only
+    risks a login prompt) when some course can actually have a new transcript."""
     ledger = load_json(ws.echo_ledger_file, {})
-    targets = [ws.resolve_course(n) for n in args.courses] if args.courses else \
-        [cid for cid, c in ws.config["courses"].items() if c.get("echo360") and not c.get("skip")]
-    targets = [cid for cid in targets if ws.config["courses"][cid].get("echo360")]
-    if not targets:
+    report = due_courses(ws, args.courses)
+    if not any(r[1] != "setup" for r in report):
         sys.exit("No courses set up for Echo360 yet: `coursework echo360 setup <course>`.")
+    targets = [cid for cid, state, *_ in report
+               if state in ("due", "unknown") or (args.force and state != "setup")]
+    if not targets:
+        print_report(ws, report)
+        print("\nNo class has finished since your last transcripts, so there's nothing to "
+              "pull (and no login needed). `--force` checks Echo360 anyway.")
+        return
+    held_by = {cid: held for cid, _s, held, _h in report}
     with Browser() as b:
         for i, cid in enumerate(targets):
             cfg = ws.config["courses"][cid]
@@ -260,6 +303,9 @@ def cmd_pull(ws, args):
                 print(f"{cfg['folder']}: Echo360 didn't load; skipped")
                 continue
             got = _pull_course(ws, cid, cfg, frame, syl, ledger, args.keep_vtt)
+            ledger[f"checked:{cid}"] = {"session": held_by.get(cid) or 0,
+                                        "at": datetime.now(timezone.utc).isoformat()}
+            save_json(ws.echo_ledger_file, ledger)
             print(f"{cfg['folder']}: {got} new transcript(s)")
     print("\nNext: ask Claude to update the Master Takeaways for these courses.")
 
