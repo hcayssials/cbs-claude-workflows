@@ -34,11 +34,14 @@ def _when(iso):
 
 
 def _day(dt):
-    return dt.strftime("%a %-d %b")
+    # Built by hand: "%-d" (no leading zero) doesn't exist on Windows.
+    return f"{dt.strftime('%a')} {dt.day} {dt.strftime('%b')}"
 
 
 def _time(dt):
-    return dt.strftime("%-I:%M%p").lower().replace(":00", "")
+    hour = dt.hour % 12 or 12
+    mins = f":{dt.minute:02d}" if dt.minute else ""
+    return f"{hour}{mins}{'am' if dt.hour < 12 else 'pm'}"
 
 
 def class_title(title, course):

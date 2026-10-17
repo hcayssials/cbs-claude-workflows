@@ -39,8 +39,11 @@ TRANSCRIPT = "/api/ui/echoplayer/lessons/{lesson}/medias/{media}/transcript-file
 COOKIES = os.environ.get("COURSEWORK_ECHO360_COOKIES",
                          os.path.join(USER_DIR, "echo360_cookies.json"))
 # A ~200 MB browser profile: kept in the cache folder, never in your Drive.
-_CACHE = "~/Library/Caches" if sys.platform == "darwin" else "~/.cache"
-PROFILE = os.path.join(os.path.expanduser(_CACHE), "coursework", "echo360_profile")
+if sys.platform == "win32":
+    _CACHE = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~/AppData/Local")
+else:
+    _CACHE = os.path.expanduser("~/Library/Caches" if sys.platform == "darwin" else "~/.cache")
+PROFILE = os.path.join(_CACHE, "coursework", "echo360_profile")
 
 
 def _playwright():
@@ -71,7 +74,7 @@ class Browser:
         self._pw = self._mgr.__enter__()
         os.makedirs(PROFILE, exist_ok=True)
         self.ctx = self._pw.chromium.launch_persistent_context(PROFILE, headless=self.headless)
-        with open(COOKIES) as fh:
+        with open(COOKIES, encoding="utf-8") as fh:
             self.ctx.add_cookies(json.load(fh))
         self.page = self.ctx.pages[0] if self.ctx.pages else self.ctx.new_page()
         return self
@@ -337,7 +340,7 @@ def _pull_course(ws, cid, cfg, frame, syl, ledger, keep_vtt):
         ledger[media_id] = {"course_id": cid, "name": name, "session": n,
                             "status": "downloaded", "saved_to": ws.relpath(txt)}
         save_json(ws.echo_ledger_file, ledger)
-        print(f"  saved  {ws.relpath(txt)}  ({len(open(txt).read().split()):,} words)")
+        print(f"  saved  {ws.relpath(txt)}  ({len(open(txt, encoding="utf-8").read().split()):,} words)")
         got += 1
     return got
 

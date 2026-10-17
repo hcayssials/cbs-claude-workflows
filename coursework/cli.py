@@ -17,6 +17,7 @@
 import argparse
 import getpass
 import os
+import re
 import sys
 from collections import Counter
 
@@ -45,6 +46,13 @@ def _clipboard(clear=False):
     """Read (or clear) the system clipboard without ever printing it."""
     import shutil
     import subprocess
+    if sys.platform == "win32":
+        ps = ["powershell", "-NoProfile", "-Command"]
+        if clear:
+            subprocess.run(ps + ["Set-Clipboard -Value ' '"], check=False)
+            return None
+        out = subprocess.run(ps + ["Get-Clipboard -Raw"], capture_output=True, check=False).stdout
+        return out.decode("utf-8", "ignore").strip()
     if sys.platform == "darwin":
         read, write = ["pbpaste"], ["pbcopy"]
     elif shutil.which("wl-paste"):
@@ -57,24 +65,19 @@ def _clipboard(clear=False):
     return subprocess.run(read, capture_output=True, check=False).stdout.decode().strip()
 
 
-def cmd_token(args):
-    """Save the Canvas token, checking it with Canvas first.
+def clean_token(raw):
+    """Canvas tokens are plain ASCII ("1234~AbC…"). Copying one often brings an
+    invisible extra: a zero-width space, a non-breaking space, a line break.
+    Drop anything that isn't a visible ASCII character."""
+    return re.sub(r"[^\x21-\x7e]", "", raw or "")
 
-    --from-clipboard is the reliable way: copy the token in Canvas, then run it.
-    Nothing is ever printed, and the clipboard is cleared afterwards. (Pasting
-    into a hidden prompt fails silently in some terminals.)"""
-    from_clip = getattr(args, "from_clipboard", False)
-    if from_clip:
-        token = "".join((_clipboard() or "").split())
-    else:
-        print("Make a token in Canvas: Account → Settings → scroll to 'Approved\n"
-              "Integrations' → + New Access Token. Paste it below (it won't be shown).")
-        token = "".join(getpass.getpass("Canvas token: ").split())
+
+def check_token(args, token):
+    """None if Canvas accepts the token, else what's wrong with it, in plain words."""
     if not token:
-        sys.exit("No token found" + (" on the clipboard. Copy it in Canvas first." if from_clip
-                                     else ". Try `coursework token --from-clipboard` instead."))
+        return "nothing was pasted"
     if len(token) < 20:
-        sys.exit("That doesn't look like a Canvas token (too short). Copy the whole token and try again.")
+        return "that's too short to be a Canvas token: copy the whole thing"
     base = DEFAULT_CONFIG["canvas_url"]
     try:
         base = Workspace.find(args.root).config["canvas_url"]
@@ -82,12 +85,38 @@ def cmd_token(args):
         pass
     resp = Canvas(base, token).s.get(f"{base}/api/v1/courses", params={"per_page": 1}, timeout=30)
     if resp.status_code == 401:
-        sys.exit("Canvas rejected that token (copied only part of it, or it was deleted). Nothing saved.")
-    write_secret(TOKEN_FILE, token)
-    if from_clip:
+        return "Canvas rejected it: copied only part of it, or the token was deleted"
+    return None
+
+
+def cmd_token(args):
+    """Save the Canvas token, after checking it with Canvas.
+
+    Pasting into the hidden prompt shows nothing; that's normal. A failed paste
+    just asks again. --from-clipboard is the backup if pasting won't work."""
+    if getattr(args, "from_clipboard", False):
+        token = clean_token(_clipboard())
+        problem = check_token(args, token)
+        if problem:
+            sys.exit(f"Not saved: {problem}. Copy it in Canvas again and re-run.")
         _clipboard(clear=True)
+    else:
+        print("Make a token in Canvas: Account → Settings → scroll to 'Approved\n"
+              "Integrations' → + New Access Token. Paste it below and press Enter.\n"
+              "Nothing appears as you paste: that's normal.")
+        for attempt in range(3):
+            token = clean_token(getpass.getpass("Canvas token: "))
+            problem = check_token(args, token)
+            if not problem:
+                break
+            left = 2 - attempt
+            print(f"  Not saved: {problem}." + (" Try again:" if left else ""))
+        else:
+            sys.exit("Still not saved. Copy the token again in Canvas (or make a new one), "
+                     "then run `coursework token` again.")
+    write_secret(TOKEN_FILE, token)
     print(f"Token saved ({len(token)} characters) and accepted by Canvas."
-          + (" Clipboard cleared." if from_clip else ""))
+          + (" Clipboard cleared." if getattr(args, "from_clipboard", False) else ""))
 
 
 def pick_term(courses):
@@ -363,7 +392,7 @@ def cmd_next(args):
     print(upnext.render(plan, full=args.full))
     if args.save:
         path = ws.abspath("Up next.md")
-        with open(path, "w") as fh:
+        with open(path, "w", encoding="utf-8") as fh:
             fh.write(upnext.render(plan, markdown=True))
         print(f"Saved to {ws.relpath(path)} (overwritten each time).")
 
@@ -390,6 +419,12 @@ def cmd_ignore(args):
 # -----------------------------------------------------------------------------
 
 def main(argv=None):
+    # Windows prints in an old code page by default, so "✓" or "→" would crash.
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
     ap = argparse.ArgumentParser(prog="coursework", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--root", help="the term folder (default: found from where you are)")
@@ -410,7 +445,7 @@ def main(argv=None):
 
     p = sub.add_parser("token", help="save your Canvas token")
     p.add_argument("--from-clipboard", action="store_true",
-                   help="read it from the clipboard (never shown), then clear the clipboard")
+                   help="backup if pasting fails: read it from the clipboard, then clear it")
     p.set_defaults(fn=cmd_token)
 
     p = sub.add_parser("courses", help="list Canvas courses")

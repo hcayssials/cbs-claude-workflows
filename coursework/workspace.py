@@ -94,7 +94,9 @@ class Workspace:
         return os.path.join(self.root, rel)
 
     def relpath(self, path):
-        return os.path.relpath(path, self.root)
+        """Relative to the workspace, always with "/" (the ledger must read the same
+        on Windows and Mac, so a folder synced from both stays consistent)."""
+        return os.path.relpath(path, self.root).replace(os.sep, "/")
 
     def resolve_course(self, arg):
         """Course id, or a (partial) folder name -> configured course id."""
@@ -123,7 +125,7 @@ class Workspace:
 # -- helpers -------------------------------------------------------------------
 def load_json(path, default):
     if os.path.exists(path):
-        with open(path) as fh:
+        with open(path, encoding="utf-8") as fh:
             return json.load(fh)
     return default
 
@@ -131,21 +133,21 @@ def load_json(path, default):
 def save_json(path, data):
     """Write atomically, so a crash mid-run never leaves half a ledger."""
     tmp = path + ".tmp"
-    with open(tmp, "w") as fh:
+    with open(tmp, "w", encoding="utf-8") as fh:
         json.dump(data, fh, indent=2, sort_keys=True, ensure_ascii=False)
     os.replace(tmp, path)
 
 
 def write_secret(path, text):
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w") as fh:
+    with open(path, "w", encoding="utf-8") as fh:
         fh.write(text)
-    os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
+    os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)  # on Windows the user folder is already private
 
 
 def read_token():
     token = os.environ.get("CANVAS_TOKEN", "").strip()
     if not token and os.path.exists(TOKEN_FILE):
-        with open(TOKEN_FILE) as fh:
+        with open(TOKEN_FILE, encoding="utf-8") as fh:
             token = fh.read().strip()
     return token or None

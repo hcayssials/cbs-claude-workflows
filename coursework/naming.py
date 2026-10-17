@@ -10,14 +10,25 @@
 
 import os
 import re
+import sys
 
 VIDEO_EXTS = {".mp4", ".mov", ".m4v", ".avi", ".mkv", ".wmv", ".webm"}
+
+# Windows refuses these as file names, with or without an extension.
+_RESERVED = {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)),
+             *(f"LPT{i}" for i in range(1, 10))}
+# Windows' default limit is 260 characters for a whole path. Keep a margin for
+# the ".part" download suffix and for Drive adding " (1)" to a duplicate.
+MAX_PATH = 240
 
 
 def sanitize(name):
     """Safe as a file or folder name on macOS, Windows and Google Drive."""
     name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", name).strip(" .")
-    return re.sub(r"\s{2,}", " ", name) or "untitled"
+    name = re.sub(r"\s{2,}", " ", name) or "untitled"
+    if os.path.splitext(name)[0].upper() in _RESERVED:
+        name = "_" + name
+    return name
 
 
 def course_folder_name(canvas_name):
@@ -71,6 +82,20 @@ def with_session_prefix(name, n):
     if n is None or has_session_prefix(name) or re.search(r"syllabus", name, re.I):
         return name
     return f"S{n:02d} {name}"
+
+
+def fit_path(path, limit=MAX_PATH):
+    """Shorten the file name (never the folders) so the full path fits Windows'
+    limit. Keeps the extension and any "S03 " prefix. On Mac/Linux, unchanged.
+    Returns None if even a short name can't fit (the folders are too deep)."""
+    if sys.platform != "win32" or len(path) <= limit:
+        return path
+    folder, name = os.path.split(path)
+    stem, ext = os.path.splitext(name)
+    room = limit - len(folder) - 1 - len(ext)
+    if room < 12:
+        return None
+    return os.path.join(folder, stem[:room - 1].rstrip(" ._") + "…" + ext)
 
 
 def unique_path(path):

@@ -5,8 +5,9 @@ description: Sync the user's Canvas (CourseWorks) courses into their term folder
 
 # Coursework sync
 
-The tool is `coursework` (installed at `{{REPO}}/bin/coursework`; if `coursework`
-isn't on PATH, call that full path). It works on a **term folder**, recognised by the
+The tool is `coursework`. If that command isn't found, run it as
+`{{CMD}}` (this computer's exact command, also saved in `~/.config/coursework/command.txt`).
+Works the same on Mac and Windows. It works on a **term folder**, recognised by the
 hidden `.coursework/` folder inside it, and finds it by walking up from the current
 directory. Pass `--root "<folder>"` when you're running from somewhere else.
 

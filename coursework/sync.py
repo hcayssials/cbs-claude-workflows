@@ -23,7 +23,7 @@ from datetime import datetime
 
 import requests
 
-from .naming import (VIDEO_EXTS, clean_file_name, session_number, unique_path,
+from .naming import (VIDEO_EXTS, clean_file_name, fit_path, session_number, unique_path,
                      with_session_prefix)
 
 MIRROR_DEPTH = 3
@@ -423,7 +423,13 @@ def _sync_one(run, cid, folder, fid, f, name, target_dir, source, counts):
         counts["large"] += 1
         return
 
-    dest = ws.abspath(os.path.join(target_dir, name))
+    dest = fit_path(ws.abspath(os.path.join(target_dir, name)))
+    if dest is None:
+        run.note(folder, "PATH-TOO-LONG", f"{name}: the folders alone are too long for Windows. "
+                                          f"Shorten the course folder (`coursework rename`) or "
+                                          f"move the term folder closer to the top of your drive")
+        counts["failed"] += 1
+        return
     was_known = bool(entry and entry.get("status") == "downloaded")
     kept = ws.abspath(entry["saved_to"]) if was_known and entry.get("saved_to") else None
     if kept and os.path.exists(kept):
@@ -553,7 +559,7 @@ def write_assignments(run, cid, cfg, assignments):
         run.change(folder, "WOULD-WRITE", f"Canvas_Assignments.md ({len(assignments)} assignments)")
         return
     os.makedirs(os.path.dirname(dest), exist_ok=True)
-    with open(dest, "w") as fh:
+    with open(dest, "w", encoding="utf-8") as fh:
         fh.write(content)
     run.ws.ledger[key] = {"course_id": cid, "course": folder, "hash": now,
                           "count": len(assignments), "status": "written",
@@ -584,8 +590,8 @@ def write_links(run, cid, cfg, links):
         lecture deck with the same words doesn't count."""
         t = _norm(title)
         for n, path in files_here:
-            if t and t in _norm(n) and (len(t) >= 15 or "/Readings/" in path):
-                return os.path.relpath(path, course_dir)
+            if t and t in _norm(n) and (len(t) >= 15 or "/Readings/" in path.replace(os.sep, "/")):
+                return os.path.relpath(path, course_dir).replace(os.sep, "/")
         return None
 
     order = sorted(links, key=lambda l: (l["session"] is None, l["session"] or 0, l["title"].lower()))
@@ -625,9 +631,9 @@ def write_links(run, cid, cfg, links):
         if prev != now:
             run.change(folder, "WOULD-WRITE", f"Canvas_Links.md ({len(links)} links)")
         return
-    old = open(dest).read() if os.path.exists(dest) else None
+    old = open(dest, encoding="utf-8").read() if os.path.exists(dest) else None
     if old != content:
-        with open(dest, "w") as fh:
+        with open(dest, "w", encoding="utf-8") as fh:
             fh.write(content)
     if prev != now:
         run.change(folder, "NEW" if prev is None else "UPDATED", f"Canvas_Links.md ({len(links)} links)")
@@ -646,7 +652,7 @@ def _norm(s):
 
 def write_change_log(run):
     stamp = datetime.now().strftime("%Y-%m-%d %H:%M")
-    with open(run.ws.change_log, "a") as fh:
+    with open(run.ws.change_log, "a", encoding="utf-8") as fh:
         fh.write(f"\n===== {stamp}{'  (dry run)' if run.dry_run else ''}\n")
         if not run.changes and not run.notes:
             fh.write("  no changes\n")
