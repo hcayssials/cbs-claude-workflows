@@ -2,10 +2,10 @@
 
 Per course, one sync pulls:
   1. Everything on the Files tab, mirroring the professor's folders (3 levels max).
-  2. "Hidden" files: files a professor links from a calendar event, a Canvas
-     page or an assignment description without listing them on the Files tab.
-     The Files-tab listing never returns these, so they are found by scanning
-     those three places for /files/<id> links.
+  2. "Hidden" files: files a professor links from the Syllabus page, a calendar
+     event, a Canvas page, a module, an announcement or an assignment description
+     without listing them on the Files tab. The Files-tab listing never returns
+     these, so they are found by scanning those places for /files/<id> links.
   3. Every assignment description, into <course>/Canvas_Assignments.md.
 
 The ledger (.coursework/ledger.json) is keyed by Canvas file id, so you can
@@ -35,7 +35,11 @@ MAX_PAGES_SCANNED = 80
 ROOT_FOLDERS = {"unfiled", "uploaded media"}
 
 # Where linked (hidden) files land, by where the link was found.
-LINKED_DIRS = {"calendar": "Readings", "page": "Readings", "assignment": "Assignments"}
+LINKED_DIRS = {"syllabus": "", "calendar": "Readings", "page": "Readings", "module": "Readings",
+               "announcement": "Announcements", "assignment": "Assignments"}
+
+# Images linked from a page are decoration (headshots, banners), not course material.
+IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".heic"}
 
 FILE_LINK = re.compile(r"/files/(\d+)")
 
@@ -102,7 +106,9 @@ def sync_course(run, cid, cfg):
 
     sync_files(run, cid, cfg, files, folders, linked)
     tab_ids = {str(f["id"]) for f in files}
-    sync_linked(run, cid, cfg, {k: v for k, v in linked.items() if k not in tab_ids})
+    twins = {(clean_file_name(f.get("display_name") or "", f.get("filename")).lower(), f.get("size"))
+             for f in files}
+    sync_linked(run, cid, cfg, {k: v for k, v in linked.items() if k not in tab_ids}, twins)
     if assignments is not None:
         write_assignments(run, cid, cfg, assignments)
     run.flush_prefixed(folder)
@@ -153,6 +159,14 @@ def find_linked_files(run, cid, cfg, assignments):
 
     c = run.canvas
     try:
+        # Many professors leave the Syllabus page as boilerplate, but some link
+        # the real syllabus PDF there and nowhere else.
+        body = c.json(f"/courses/{cid}", {"include[]": "syllabus_body"}).get("syllabus_body")
+        for fid in FILE_LINK.findall(body or ""):
+            add(fid, "syllabus", "Syllabus page")
+    except requests.HTTPError:
+        pass
+    try:
         for ev in c.paginate("/calendar_events", {"context_codes[]": f"course_{cid}",
                                                   "type": "event", "all_events": "true"}):
             title = ev.get("title") or ""
@@ -175,6 +189,28 @@ def find_linked_files(run, cid, cfg, assignments):
                 continue
             for fid in FILE_LINK.findall(body):
                 add(fid, "page", p.get("title") or p["url"])
+
+    try:
+        for m in c.paginate(f"/courses/{cid}/modules", {"include[]": "items"}):
+            for it in m.get("items") or []:
+                if it.get("type") == "File" and it.get("content_id"):
+                    # Only the module's name may give a session ("Session 3"): file
+                    # titles can carry last year's numbering.
+                    add(str(it["content_id"]), "module", m.get("name") or "module",
+                        session_number(m.get("name")))
+    except requests.HTTPError:
+        pass
+
+    try:
+        for d in c.paginate("/announcements", {"context_codes[]": f"course_{cid}",
+                                              "start_date": "2000-01-01"}):
+            for fid in FILE_LINK.findall(d.get("message") or ""):
+                add(fid, "announcement", d.get("title") or "announcement")
+            for att in d.get("attachments") or []:
+                if att.get("id"):
+                    add(str(att["id"]), "announcement", d.get("title") or "announcement")
+    except requests.HTTPError:
+        pass
 
     for a in assignments or []:
         for fid in FILE_LINK.findall(a.get("description") or ""):
@@ -245,7 +281,7 @@ def sync_files(run, cid, cfg, files, folders, linked):
                                       f"{path} (add a route to file it properly)")
 
 
-def sync_linked(run, cid, cfg, linked):
+def sync_linked(run, cid, cfg, linked, twins=frozenset()):
     """Files linked from calendar/pages/assignments but absent from the Files tab."""
     folder = cfg["folder"]
     counts = dict(new=0, updated=0, unchanged=0, excluded=0, large=0, failed=0)
@@ -269,9 +305,20 @@ def sync_linked(run, cid, cfg, linked):
                     run.ws.save_ledger()
             continue
         name = clean_file_name(info.get("display_name") or "", info.get("filename"))
+        skip = ("decorative image" if os.path.splitext(name)[1].lower() in IMAGE_EXTS else
+                "duplicate of a Files-tab file" if (name.lower(), info.get("size")) in twins else None)
+        if skip:
+            # A second upload of a Files-tab file (same name and size) would be a
+            # second copy of the same document: keep only one.
+            run.ws.ledger[fid] = {"course_id": cid, "course": folder, "name": name,
+                                  "status": "ignored", "ignored_reason": skip,
+                                  "source": ref["source"]}
+            if not run.dry_run:
+                run.ws.save_ledger()
+            continue
         # An event without a session number ("Midterm review") gives no prefix.
         session = ref["session"] if cfg.get("session_prefix", True) else None
-        target = os.path.join(folder, LINKED_DIRS[ref["source"]])
+        target = os.path.join(folder, LINKED_DIRS[ref["source"]]) if LINKED_DIRS[ref["source"]] else folder
         final = with_session_prefix(name, session)
         if _sync_one(run, cid, folder, fid, info, final, target,
                      f"linked:{ref['source']}", counts) and final != name:

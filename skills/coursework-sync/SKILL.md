@@ -12,10 +12,11 @@ directory. Pass `--root "<folder>"` when you're running from somewhere else.
 
 ## Hard rules
 
-1. **Never handle the Canvas token or the Echo360 login yourself.** Both need the user
-   at a terminal: ask them to run `coursework token` (paste the token) or
-   `coursework echo360 login` (UNI + Duo, **then press Enter** in the terminal, or the
-   login isn't saved). Don't ask them to paste a token into the chat.
+1. **Never see the Canvas token or the Echo360 login.** For a token, ask the user to copy
+   it in Canvas and say "copied", then run `coursework token --from-clipboard`: it saves
+   it without printing it and clears the clipboard. Never ask them to paste it into the
+   chat or a terminal. For Echo360, they run `coursework echo360 login` in a terminal
+   (UNI + Duo, **then press Enter**, or the login isn't saved).
 2. **Preview, then sync, then verify.** Run `coursework sync --dry-run` first and show the
    user what would land, then `coursework sync`, then `coursework verify`. Only call a run
    successful when `verify` prints `VERIFIED`. Never claim a file was downloaded
@@ -39,7 +40,9 @@ directory. Pass `--root "<folder>"` when you're running from somewhere else.
 | "just PM" | `coursework sync "Product Management"` (a partial name works) |
 | "add Negotiations" | `coursework courses`, confirm the id, `coursework add <id>` |
 | "I dropped X" | `coursework drop "X"` (keeps the files) |
-| "get the big slide deck" | `coursework sync "<course>" --max-mb 0` |
+| "get the big slide deck" | `coursework sync "<course>" --max-mb 0` (this run only) |
+| "only small files" / "no size limit" | `coursework init --max-mb <N>` saves it for the folder (`0` = none). Don't use `sync --max-mb` for a lasting change: `verify` would disagree |
+| "did it miss hidden files?" | Besides the Files tab, sync scans the Syllabus page, calendar events, pages, modules, announcements and assignment descriptions. Files over the cap are listed as TOO-LARGE, not missed |
 | "I moved some files, verify fails" | `coursework verify --fix` |
 | "what do I need for Thursday?" / "what's next?" | `coursework next` (or `coursework next pm`). Read it back briefly, then offer: "Want me to save this as Up next.md?" (`--save`) |
 | "new transcripts?" | `coursework echo360 pull`. It checks the Canvas calendar first and opens no browser if no class has finished since the last transcript. Only ask the user to log in if `pull` says the login has expired. Don't use `--force` unless they ask. |

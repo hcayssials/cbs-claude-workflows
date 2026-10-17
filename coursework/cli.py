@@ -22,7 +22,7 @@ from collections import Counter
 from . import sync as S
 from .canvas import Canvas
 from .naming import course_folder_name
-from .workspace import TOKEN_FILE, Workspace, read_token, write_secret
+from .workspace import DEFAULT_CONFIG, TOKEN_FILE, Workspace, read_token, write_secret
 
 
 def canvas_for(ws):
@@ -40,14 +40,53 @@ def get_ws(args):
 # token / init / courses / add / drop
 # -----------------------------------------------------------------------------
 
+def _clipboard(clear=False):
+    """Read (or clear) the system clipboard without ever printing it."""
+    import shutil
+    import subprocess
+    if sys.platform == "darwin":
+        read, write = ["pbpaste"], ["pbcopy"]
+    elif shutil.which("wl-paste"):
+        read, write = ["wl-paste", "-n"], ["wl-copy"]
+    else:
+        read, write = ["xclip", "-selection", "clipboard", "-o"], ["xclip", "-selection", "clipboard"]
+    if clear:
+        subprocess.run(write, input=b"", check=False)
+        return None
+    return subprocess.run(read, capture_output=True, check=False).stdout.decode().strip()
+
+
 def cmd_token(args):
-    print("Make a token in Canvas: Account → Settings → scroll to 'Approved\n"
-          "Integrations' → + New Access Token. Paste it below (it won't be shown).")
-    token = getpass.getpass("Canvas token: ").strip()
+    """Save the Canvas token, checking it with Canvas first.
+
+    --from-clipboard is the reliable way: copy the token in Canvas, then run it.
+    Nothing is ever printed, and the clipboard is cleared afterwards. (Pasting
+    into a hidden prompt fails silently in some terminals.)"""
+    from_clip = getattr(args, "from_clipboard", False)
+    if from_clip:
+        token = "".join((_clipboard() or "").split())
+    else:
+        print("Make a token in Canvas: Account → Settings → scroll to 'Approved\n"
+              "Integrations' → + New Access Token. Paste it below (it won't be shown).")
+        token = "".join(getpass.getpass("Canvas token: ").split())
     if not token:
-        sys.exit("Nothing pasted; token unchanged.")
+        sys.exit("No token found" + (" on the clipboard. Copy it in Canvas first." if from_clip
+                                     else ". Try `coursework token --from-clipboard` instead."))
+    if len(token) < 20:
+        sys.exit("That doesn't look like a Canvas token (too short). Copy the whole token and try again.")
+    base = DEFAULT_CONFIG["canvas_url"]
+    try:
+        base = Workspace.find(args.root).config["canvas_url"]
+    except SystemExit:
+        pass
+    resp = Canvas(base, token).s.get(f"{base}/api/v1/courses", params={"per_page": 1}, timeout=30)
+    if resp.status_code == 401:
+        sys.exit("Canvas rejected that token (copied only part of it, or it was deleted). Nothing saved.")
     write_secret(TOKEN_FILE, token)
-    print(f"Saved to {TOKEN_FILE} (readable only by you, outside your Drive).")
+    if from_clip:
+        _clipboard(clear=True)
+    print(f"Token saved ({len(token)} characters) and accepted by Canvas."
+          + (" Clipboard cleared." if from_clip else ""))
 
 
 def pick_term(courses):
@@ -65,6 +104,11 @@ def cmd_init(args):
     print(f"Coursework folder: {root}")
     if args.canvas_url:
         ws.config["canvas_url"] = args.canvas_url.rstrip("/")
+    if args.max_mb is not None:
+        ws.config["max_mb"] = args.max_mb
+        ws.save_config()
+        print(f"Size cap for this folder: {args.max_mb:g} MB" if args.max_mb else
+              "Size cap for this folder: none")
     if not read_token():
         if not sys.stdin.isatty():
             sys.exit("No Canvas token yet. Run `coursework token` in a terminal, then "
@@ -278,9 +322,13 @@ def main(argv=None):
     p.add_argument("--term", help='Canvas term name, e.g. "Spring 2027" (default: latest)')
     p.add_argument("--add", help="'all' or comma-separated course ids (skips the prompt)")
     p.add_argument("--canvas-url", help="only if your school is not Columbia")
+    p.add_argument("--max-mb", type=float, help="this folder's size cap; 0 = none (default 30)")
     p.set_defaults(fn=cmd_init)
 
-    sub.add_parser("token", help="save your Canvas token").set_defaults(fn=cmd_token)
+    p = sub.add_parser("token", help="save your Canvas token")
+    p.add_argument("--from-clipboard", action="store_true",
+                   help="read it from the clipboard (never shown), then clear the clipboard")
+    p.set_defaults(fn=cmd_token)
 
     p = sub.add_parser("courses", help="list Canvas courses")
     p.add_argument("--all", action="store_true", help="every term, not just this one")
@@ -299,7 +347,8 @@ def main(argv=None):
     p = sub.add_parser("sync", help="pull new and updated material")
     p.add_argument("courses", nargs="*", help="course ids or partial folder names")
     p.add_argument("--dry-run", action="store_true")
-    p.add_argument("--max-mb", type=float, help="skip bigger files; 0 = no limit (default 30)")
+    p.add_argument("--max-mb", type=float, help="this run only: skip bigger files, 0 = no limit "
+                   "(the folder's own cap, default 30, is set with `init --max-mb`)")
     p.set_defaults(fn=cmd_sync)
 
     p = sub.add_parser("next", help="what you need for each course's next class")

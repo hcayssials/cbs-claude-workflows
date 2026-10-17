@@ -11,8 +11,9 @@ Canvas ──coursework sync──▶ your term folder ──Echo360 add-on─�
 ```
 
 1. **`coursework sync`** pulls everything from Canvas into one folder per course:
-   files, the readings professors link from the calendar or a page without putting
-   them on the Files tab, and every assignment description. Run it whenever you like:
+   files, the files professors link from the Syllabus page, calendar, pages, modules,
+   announcements or assignments without putting them on the Files tab, and every
+   assignment description. Run it whenever you like:
    it only fetches what's new.
 2. **Echo360 add-on** (optional): pulls lecture transcripts as plain text.
 3. **Two Claude skills**: one so Claude can run all of this for you ("sync my
@@ -48,7 +49,8 @@ coursework init
 ```
 
 `init` asks for a **Canvas token** the first time. To make one, go to CourseWorks →
-Account → Settings → *Approved Integrations* → **+ New Access Token** and paste it in.
+Account → Settings → *Approved Integrations* → **+ New Access Token**. Copy it, then run
+`coursework token --from-clipboard` (it's never displayed, and the clipboard is cleared).
 It's stored in `~/.config/coursework/`, outside your Drive, readable only by you. Then
 `init` lists your courses for the current term and asks which ones to sync.
 
@@ -139,7 +141,9 @@ Naming rules (applied for you):
   with the calendar event each one came from, is in `.coursework/changes.log`.
 - **Lecture videos** are never downloaded. Files over 30 MB (usually slide decks with
   video in them) are skipped and named in the summary; `coursework sync "<course>" --max-mb 0`
-  gets them.
+  gets them. Change the folder's cap with `coursework init --max-mb <N>` (`0` = none).
+- **Decorative images** linked from pages (headshots, banners) and **duplicate uploads**
+  of a Files-tab file are skipped.
 - **Rename, move or delete freely.** The sync remembers every file by its Canvas id: it
   won't re-download what you deleted, and a professor's update overwrites your renamed
   copy instead of creating a second one. After moving files, run `coursework verify --fix`.
@@ -234,7 +238,7 @@ tool id, change `echo360_tool_id` in `.coursework/config.json`.
 | | |
 |---|---|
 | `coursework init [folder]` | set up a term folder (token, term, courses) |
-| `coursework token` | save or replace your Canvas token |
+| `coursework token [--from-clipboard]` | save or replace your Canvas token |
 | `coursework courses [--all]` | your Canvas courses, and which are set up here |
 | `coursework add <id> [--as NAME]` | start syncing a course |
 | `coursework drop <course>` | stop syncing a course (keeps files) |

@@ -67,7 +67,9 @@ private and this user hasn't been given access. Stop and tell them to ask the pe
 sent them this file to add their GitHub username, or to send them the tool as a zip. If
 they have a zip, unzip it so the files sit at `~/cbs-claude-workflows/README.md`, etc.
 
-Then install it:
+Then install it. Before you run it, tell the user: *"I'm about to run the tool's
+installer. Claude may ask you to approve this, because it runs code that was just
+downloaded. That's expected: please approve it."*
 
 ```bash
 ~/cbs-claude-workflows/setup.sh
@@ -79,10 +81,10 @@ This installs one Python package (`requests`), puts a `coursework` command in
 - If it prints a line telling them to add `~/.local/bin` to their PATH, **ask** whether you
   may add it to `~/.zshrc`. Either way, for the rest of this setup call the tool by its
   full path: `~/cbs-claude-workflows/bin/coursework`. Below, `coursework` means that path.
-- If `pip` fails with "externally-managed-environment", run
-  `python3 -m pip install --user --break-system-packages requests` and carry on.
+- If the installer is blocked and the user doesn't approve it, stop: nothing else works
+  without it.
 
-### Step 3: The Canvas token (the user does this, not you)
+### Step 3: The Canvas token (the user copies it, you never see it)
 
 Explain to the user, in roughly these words:
 
@@ -90,21 +92,27 @@ Explain to the user, in roughly these words:
 > this tool. In CourseWorks: click **Account** (top left) → **Settings** → scroll down to
 > **Approved Integrations** → **+ New Access Token**. For Purpose, write "coursework sync".
 > Leave the expiry blank or set it to the end of term, then click **Generate Token** and
-> copy it. Don't paste it here in the chat. I'll open a terminal for you to paste it into.
+> **copy** it. Don't paste it here. Just tell me "copied" and I'll save it straight from
+> your clipboard without displaying it.
 
-Then open a terminal tab for them, in this folder, running:
+When they say it's copied, run:
 
 ```bash
-~/cbs-claude-workflows/bin/coursework token
+coursework token --from-clipboard
 ```
 
-(Use the app's run-in-terminal tool if you have one. Otherwise ask them to open the
-Terminal app, paste that command, and press Enter.) It asks them to paste the token,
-which isn't shown as they paste, and press Enter. It saves it to
-`~/.config/coursework/canvas_token`, outside their Drive.
+It reads the clipboard without printing anything, checks the token with Canvas, saves it
+to `~/.config/coursework/canvas_token` (outside their Drive, readable only by them), and
+clears the clipboard. Tell them the result in one line:
 
-Wait for them to say it's done. To check it worked, run Step 4. A `401` error means the
-token didn't save or was copied incompletely: repeat this step.
+- `Token saved … accepted by Canvas`: done, go on to Step 4.
+- `No token found on the clipboard` or `too short`: they copied something else. Ask them
+  to click Canvas's copy button again and say "copied".
+- `Canvas rejected that token`: it was copied incompletely, or deleted. They should make
+  a new one.
+
+Don't ask them to paste the token into a terminal: hidden password prompts silently
+receive nothing in some terminals.
 
 ### Step 4: Find their courses
 
@@ -125,6 +133,13 @@ them is allowed (only course materials are read), but most TAs don't want them, 
 If the term looks wrong (for example last term's courses), ask which term they mean and
 run `coursework init --term "Spring 2027"` (using the term name exactly as Canvas lists it).
 
+Ask about file size in the same message: *"Files over 30 MB (mostly slide decks with video)
+are skipped and listed so you can grab them later. Keep 30 MB, or change it?"* If they
+choose another limit, save it for the folder so every later sync and check uses it:
+`coursework init --max-mb <N>` (`0` means no limit). Never pass `--max-mb` to `sync`
+for this: that applies to one run only, and `verify` would then report the skipped files
+as missing.
+
 ### Step 5: Add the courses
 
 ```bash
@@ -144,9 +159,9 @@ coursework sync --dry-run
 Summarise per course: how many files would land, and anything in the notes. Then ask:
 "Ready to download?"
 
-- `TOO-LARGE`: files over 30 MB are skipped (usually slide decks with video). Name them
-  and ask whether they want them; if yes, `coursework sync "<course>" --max-mb 0` after
-  the main sync.
+- `TOO-LARGE`: files over the cap are skipped. Name them (or count them, if there are
+  many) and ask whether they want any; if yes, `coursework sync "<course>" --max-mb 0`
+  after the main sync. That's the one time a one-run `--max-mb` is right.
 - `PREFIXED`: some files will be named `S03 …` because the Canvas calendar assigns them
   to session 3. Mention it in one line.
 - `LOCKED`: a professor linked a file students can't download. Nothing to do.
@@ -196,6 +211,8 @@ so it's safe to delete if they'd like the folder clean.
 |---|---|
 | `command not found: coursework` | Use the full path `~/cbs-claude-workflows/bin/coursework` |
 | `Canvas said 401` | The token is wrong or expired: Step 3 again |
+| `verify` lists files as WOULD-ADD after a deliberate small cap | The cap wasn't saved: `coursework init --max-mb <N>`, then `verify` again |
+| "Did it get everything?" | Yes, within the cap. Besides the Files tab, sync scans the Syllabus page, calendar events, pages, modules, announcements and assignment descriptions for linked files. It skips decorative images and duplicate uploads. `LOCKED` notes are files students can't download. |
 | `No module named requests` | `python3 -m pip install --user requests` (add `--break-system-packages` if pip refuses) |
 | `Not inside a coursework folder` | You're running from the wrong place: `cd` into this folder, or add `--root "<this folder>"` |
 | A course is missing from the list | It may be under another term: `coursework courses --all` |
