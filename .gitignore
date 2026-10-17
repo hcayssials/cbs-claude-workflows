@@ -1,0 +1,11 @@
+# Never commit state, secrets or downloaded course material.
+.coursework/
+canvas_token
+*_token
+*cookies*.json
+.echo360*
+__pycache__/
+*.pyc
+.DS_Store
+*.part
+*.tmp
