@@ -125,12 +125,18 @@ B-term/
   .coursework/                         sync state; don't edit
   Product Management/
     Canvas_Assignments.md              every assignment description, kept current
+    Canvas_Links.md                    readings that are only links: Harvard coursepack cases, articles
     Course Slides/…                    the professor's folders, mirrored
     Readings/S03 Pitney Bowes.pdf      readings linked from the calendar, prefixed by session
     Assignments/Answer Key PS1.pdf     files linked only from an assignment description
     Transcripts/S07 Transcript.txt     (Echo360 add-on)
     Master Takeaways_Product Management.md   (Claude)
 ```
+
+Courses can sit flat like this or grouped (`A-term/`, `B-term/`, `Full Term/`,
+`Block Week/`, worked out from class dates): `coursework init --group-by-term`.
+Folder names too long? `coursework rename "The U.S. Healthcare System…" "US Healthcare"`.
+Don't rename them in Finder, or if you do, run that same command afterwards to reconnect.
 
 Naming rules (applied for you):
 
@@ -144,6 +150,11 @@ Naming rules (applied for you):
   gets them. Change the folder's cap with `coursework init --max-mb <N>` (`0` = none).
 - **Decorative images** linked from pages (headshots, banners) and **duplicate uploads**
   of a Files-tab file are skipped.
+- **Loose session readings** (a professor dumping cases into Canvas's "unfiled") go into
+  `Readings/` when the calendar assigns them to a session.
+- **Readings that can't be downloaded** (Harvard coursepack cases, other Canvas tools,
+  web articles) are listed by session in `Canvas_Links.md`, and each sync says how many.
+  Save a coursepack PDF into the course folder and it gets ticked off.
 - **Rename, move or delete freely.** The sync remembers every file by its Canvas id: it
   won't re-download what you deleted, and a professor's update overwrites your renamed
   copy instead of creating a second one. After moving files, run `coursework verify --fix`.
@@ -237,10 +248,11 @@ tool id, change `echo360_tool_id` in `.coursework/config.json`.
 
 | | |
 |---|---|
-| `coursework init [folder]` | set up a term folder (token, term, courses) |
+| `coursework init [folder] [--group-by-term] [--max-mb N]` | set up a term folder (token, term, courses, layout) |
 | `coursework token [--from-clipboard]` | save or replace your Canvas token |
 | `coursework courses [--all]` | your Canvas courses, and which are set up here |
 | `coursework add <id> [--as NAME]` | start syncing a course |
+| `coursework rename <course> <new name>` | rename or move a course folder, keeping its history |
 | `coursework drop <course>` | stop syncing a course (keeps files) |
 | `coursework sync [course…] [--dry-run] [--max-mb N]` | pull new and updated material |
 | `coursework verify [--fix]` | confirm nothing's left on Canvas and nothing's missing |

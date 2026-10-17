@@ -23,7 +23,9 @@ from .sync import html_to_text
 
 DUE_WINDOW = timedelta(days=7)
 TERMINAL_LINES = 12
-FILE_ANCHOR = re.compile(r'<a\b[^>]*href="[^"]*/files/(\d+)[^"]*"[^>]*>(.*?)</a>', re.I | re.S)
+FILE_ANCHOR = re.compile(r'<a\b[^>]*href="(?:[^"]*/courses/\d+|)/files/(\d+)[^"]*"[^>]*>(.*?)</a>', re.I | re.S)
+TOOL_ANCHOR = re.compile(r'<a\b[^>]*href="[^"]*(?:/external_tools/|hbsp\.harvard\.edu)[^"]*"[^>]*>(.*?)</a>',
+                         re.I | re.S)
 SECTION_SUFFIX = re.compile(r"\s*\([A-Z]{4}B\d{4}_[^)]*\)\s*$")   # " (MRKTB8636_001_2026_3 - …)"
 
 
@@ -100,7 +102,11 @@ def prep_notes(raw_html, ledger, root, course_folder):
             flags[fid] = "⚠ not synced yet: run `coursework sync`"
         return f"{label} [[{fid}]]"
 
-    text = html_to_text(FILE_ANCHOR.sub(swap, raw_html))
+    def tool(m):
+        label = re.sub(r"<[^>]+>", "", m.group(1)).strip()
+        return f"{label} (⚠ a Canvas/coursepack link, not a file: get it by hand, see Canvas_Links.md)"
+
+    text = html_to_text(TOOL_ANCHOR.sub(tool, FILE_ANCHOR.sub(swap, raw_html)))
     for fid, flag in flags.items():
         text = text.replace(f"[[{fid}]]", f"({flag})")
     return [ln for ln in text.splitlines() if ln.strip()]

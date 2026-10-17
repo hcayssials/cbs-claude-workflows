@@ -47,14 +47,15 @@ def clean_file_name(display_name, real_filename=""):
 
 
 _SESSION_WORD = re.compile(r"\b(?:session|class|lecture|day)\s*#?\s*0*(\d{1,2})(?!\d)", re.I)
-_LEADING_NUM = re.compile(r"^\s*(?:S\s*)?0*(\d{1,2})\s*[:.\-–)_ ]")
+# "2. Topic", "S05 Topic", and course-coded ones like "USHS4: Topic"
+_LEADING_NUM = re.compile(r"^\s*(?:[A-Z]{0,6}S\s*)?0*(\d{1,2})\s*[:.\-–)_ ]")
 
 
 def session_number(title):
     """Session number stated in a calendar-event or lesson title, else None.
 
     Handles "Session 3: …", "Negotiations Session 1: …", "Class 4_ Topic",
-    "S05 …" and "2. Topic". Returns None rather than guessing.
+    "S05 …", "USHS4: …" and "2. Topic". Returns None rather than guessing.
     """
     if not title:
         return None

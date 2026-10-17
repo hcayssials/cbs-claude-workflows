@@ -41,7 +41,16 @@ LINKED_DIRS = {"syllabus": "", "calendar": "Readings", "page": "Readings", "modu
 # Images linked from a page are decoration (headshots, banners), not course material.
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".heic"}
 
-FILE_LINK = re.compile(r"/files/(\d+)")
+# A Canvas file link, absolute or relative. Not just "/files/<n>": plenty of web
+# addresses contain that (kff.org/wp-content/…/files/2024/…).
+FILE_LINK = re.compile(r"(?:/courses/\d+/files/|/api/v1/files/|[\"']/files/)(\d+)")
+ANCHOR = re.compile(r'<a\b([^>]*)>(.*?)</a>', re.I | re.S)
+HREF = re.compile(r'href="([^"]+)"', re.I)
+TITLE_ATTR = re.compile(r'title="([^"]+)"', re.I)
+# Links that are never readings: people, meetings, forms.
+NOT_READINGS = re.compile(r"linkedin\.com|zoom\.us|mailto:|calendly|forms\.gle|docs\.google\.com/forms"
+                          r"|polleverywhere|/courses/\d+/(?:assignments|pages|modules|discussion_topics|quizzes)"
+                          r"|/files/\d+", re.I)
 
 
 class Run:
@@ -102,7 +111,7 @@ def sync_course(run, cid, cfg):
     folders = _folder_paths(c, cid)
     assignments = _safe_list(run, folder, f"/courses/{cid}/assignments",
                              {"order_by": "due_at"}, "assignments")
-    linked = find_linked_files(run, cid, cfg, assignments)
+    linked, links = find_linked_files(run, cid, cfg, assignments)
 
     sync_files(run, cid, cfg, files, folders, linked)
     tab_ids = {str(f["id"]) for f in files}
@@ -111,6 +120,7 @@ def sync_course(run, cid, cfg):
     sync_linked(run, cid, cfg, {k: v for k, v in linked.items() if k not in tab_ids}, twins)
     if assignments is not None:
         write_assignments(run, cid, cfg, assignments)
+    write_links(run, cid, cfg, links)
     run.flush_prefixed(folder)
 
 
@@ -147,7 +157,30 @@ def find_linked_files(run, cid, cfg, assignments):
     file linked from "Session 3: …" is a session-3 reading. That is the only
     place a session number is taken from; it is never guessed.
     """
-    found = {}
+    found, links = {}, {}
+
+    def add_link(url, title, kind, source, where, session=None):
+        title = re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", "", title or ""))).strip()
+        if not title or NOT_READINGS.search(url or ""):
+            return
+        cur = links.get(title.lower())
+        if cur is None or (session is not None and (cur["session"] is None or session < cur["session"])):
+            links[title.lower()] = {"title": title, "url": url, "kind": kind, "source": source,
+                                    "where": where, "session": session}
+
+    def scan_links(raw, source, where, session=None, tools_only=False):
+        """Readings that are links, not files: coursepack/Canvas-tool links always,
+        plain web links only where a professor lists readings (calendar, modules)."""
+        for attrs, label in ANCHOR.findall(raw or ""):
+            m = HREF.search(attrs)
+            url = html.unescape(m.group(1)) if m else ""
+            t = TITLE_ATTR.search(attrs)
+            title = label if re.sub(r"<[^>]+>", "", label).strip() else (t.group(1) if t else "")
+            kind = link_kind(url)
+            if kind == "web" and tools_only:
+                continue
+            if kind:
+                add_link(url, title, kind, source, where, session)
 
     def add(fid, source, where, session=None):
         cur = found.get(fid)
@@ -164,6 +197,7 @@ def find_linked_files(run, cid, cfg, assignments):
         body = c.json(f"/courses/{cid}", {"include[]": "syllabus_body"}).get("syllabus_body")
         for fid in FILE_LINK.findall(body or ""):
             add(fid, "syllabus", "Syllabus page")
+        scan_links(body, "syllabus", "Syllabus page", tools_only=True)
     except requests.HTTPError:
         pass
     try:
@@ -172,6 +206,7 @@ def find_linked_files(run, cid, cfg, assignments):
             title = ev.get("title") or ""
             for fid in FILE_LINK.findall(ev.get("description") or ""):
                 add(fid, "calendar", title, session_number(title))
+            scan_links(ev.get("description"), "calendar", title, session_number(title))
     except requests.HTTPError:
         pass
 
@@ -189,15 +224,21 @@ def find_linked_files(run, cid, cfg, assignments):
                 continue
             for fid in FILE_LINK.findall(body):
                 add(fid, "page", p.get("title") or p["url"])
+            scan_links(body, "page", p.get("title") or p["url"], tools_only=True)
 
     try:
         for m in c.paginate(f"/courses/{cid}/modules", {"include[]": "items"}):
             for it in m.get("items") or []:
+                n = session_number(m.get("name"))
                 if it.get("type") == "File" and it.get("content_id"):
                     # Only the module's name may give a session ("Session 3"): file
                     # titles can carry last year's numbering.
-                    add(str(it["content_id"]), "module", m.get("name") or "module",
-                        session_number(m.get("name")))
+                    add(str(it["content_id"]), "module", m.get("name") or "module", n)
+                elif it.get("type") in ("ExternalTool", "ExternalUrl"):
+                    url = it.get("external_url") or it.get("url") or ""
+                    kind = "Canvas tool" if it["type"] == "ExternalTool" else "web"
+                    add_link(url, it.get("title"), link_kind(url) or kind, "module",
+                             m.get("name") or "module", n)
     except requests.HTTPError:
         pass
 
@@ -215,7 +256,21 @@ def find_linked_files(run, cid, cfg, assignments):
     for a in assignments or []:
         for fid in FILE_LINK.findall(a.get("description") or ""):
             add(fid, "assignment", a.get("name") or "assignment")
-    return found
+        scan_links(a.get("description"), "assignment", a.get("name") or "assignment",
+                   tools_only=True)
+    return found, list(links.values())
+
+
+def link_kind(url):
+    """'Harvard coursepack', 'Canvas tool', 'web', or None for non-reading links."""
+    u = (url or "").lower()
+    if "hbsp.harvard.edu" in u or "hbr.org/store" in u:
+        return "Harvard coursepack"
+    if "/external_tools/" in u:
+        return "Canvas tool"
+    if u.startswith("http") and "courseworks" not in u and "instructure" not in u:
+        return "web"
+    return None
 
 
 # -----------------------------------------------------------------------------
@@ -266,6 +321,10 @@ def sync_files(run, cid, cfg, files, folders, linked):
         name = clean_file_name(f.get("display_name") or "", f.get("filename"))
         session = (linked.get(fid) or {}).get("session") if cfg.get("session_prefix", True) else None
         target = resolve_dest_dir(cfg, folders.get(f.get("folder_id"), ""), name, flattened)
+        if target == "" and session is not None and (linked.get(fid) or {}).get("source") == "calendar":
+            # Loose in the course root (an "unfiled" dump) but assigned to a session
+            # on the calendar: it's a reading, so file it with the others.
+            target = "Readings"
         if target is not None:
             target = os.path.join(folder, *[p for p in target.split("/") if p])
         final = with_session_prefix(name, session)
@@ -503,6 +562,82 @@ def write_assignments(run, cid, cfg, assignments):
     run.say(f"  assignments: wrote {len(assignments)} ({with_body} with descriptions)")
     run.change(folder, "NEW" if prev is None else "UPDATED",
                f"Canvas_Assignments.md ({len(assignments)} assignments)")
+
+
+def write_links(run, cid, cfg, links):
+    """<course>/Canvas_Links.md: readings that are links, not files, so they can't
+    be downloaded (Harvard coursepack cases, other Canvas tools, web articles).
+    ✓ marks one you've since saved yourself (a file in the course folder with
+    that title in its name)."""
+    folder = cfg["folder"]
+    dest = run.ws.abspath(os.path.join(folder, "Canvas_Links.md"))
+    key = f"links:{cid}"
+    if not links:
+        return
+    course_dir = run.ws.abspath(folder)
+    files_here = [(n, os.path.join(d, n)) for d, _s, fs in os.walk(course_dir) for n in fs
+                  if not n.startswith("Canvas_")]
+
+    def have(title):
+        """The file you saved for this link, if any: its name must contain the whole
+        title, and short titles ("Google Glass") also need to be in Readings/ so a
+        lecture deck with the same words doesn't count."""
+        t = _norm(title)
+        for n, path in files_here:
+            if t and t in _norm(n) and (len(t) >= 15 or "/Readings/" in path):
+                return os.path.relpath(path, course_dir)
+        return None
+
+    order = sorted(links, key=lambda l: (l["session"] is None, l["session"] or 0, l["title"].lower()))
+    how = {"Harvard coursepack": "buy/download from the Harvard link on Canvas",
+           "Canvas tool": "open from Canvas (it isn't a file)",
+           "web": "open in a browser"}
+    body, group = [], object()
+    for l in order:
+        g = f"S{l['session']:02d}" if l["session"] else "No session given"
+        if g != group:
+            body += ["", f"## {g}"]
+            group = g
+        got = have(l["title"])
+        mark = f"✓ (you have `{got}`)" if got else "☐"
+        body.append(f"- {mark} **{l['title']}** · {l['kind']}: {how[l['kind']]} "
+                    f"(from {l['source']} \"{l['where'][:60]}\") · [link]({l['url']})")
+    missing = [l for l in links if not have(l["title"])]
+    paid = sum(l["kind"] == "Harvard coursepack" for l in missing)
+    web = sum(l["kind"] == "web" for l in missing)
+    head = [f"# {folder.rsplit('/', 1)[-1]}: readings that are links, not files", "",
+            "Written by `coursework sync` and rewritten each time. These can't be downloaded "
+            "automatically. ✓ = a file with that title is already in this course folder "
+            f"(save yours into Readings/ as `S03 <title>.pdf` and it gets ticked).", ""]
+    content = "\n".join(head + body).rstrip() + "\n"
+    # Compare only the links themselves: not the title (renaming the folder
+    # changes it) and not the ✓ marks (they change as you save files).
+    marks_free = re.sub(r"- (?:✓ \(you have `[^`]*`\)|☐) ", "- ", "\n".join(body))
+    now = hashlib.sha256(marks_free.encode()).hexdigest()[:16]
+    prev = (run.ws.ledger.get(key) or {}).get("hash")
+    if missing:
+        parts = [f"{paid} Harvard coursepack" if paid else "",
+                 f"{web} web article(s)" if web else "",
+                 f"{len(missing) - paid - web} other Canvas link(s)" if len(missing) - paid - web else ""]
+        run.note(folder, "LINKS", f"{len(missing)} reading(s) can't be downloaded, they're links: "
+                                  + ", ".join(p for p in parts if p) + ". See Canvas_Links.md")
+    if run.dry_run:
+        if prev != now:
+            run.change(folder, "WOULD-WRITE", f"Canvas_Links.md ({len(links)} links)")
+        return
+    old = open(dest).read() if os.path.exists(dest) else None
+    if old != content:
+        with open(dest, "w") as fh:
+            fh.write(content)
+    if prev != now:
+        run.change(folder, "NEW" if prev is None else "UPDATED", f"Canvas_Links.md ({len(links)} links)")
+    run.ws.ledger[key] = {"course_id": cid, "course": folder, "hash": now, "status": "written",
+                          "saved_to": run.ws.relpath(dest)}
+    run.ws.save_ledger()
+
+
+def _norm(s):
+    return re.sub(r"[^a-z0-9]", "", (s or "").lower())
 
 
 # -----------------------------------------------------------------------------

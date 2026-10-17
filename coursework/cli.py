@@ -7,6 +7,7 @@
   coursework next                 what you need for each course's next class
   coursework courses              list your Canvas courses this term
   coursework add <id> [--as NAME] start syncing a course
+  coursework rename <course> NEW  rename a course folder (do this, not Finder)
   coursework drop <course>        stop syncing a course (keeps its files)
   coursework ignore <file>        never re-download this file (e.g. an old version)
   coursework token                save or replace your Canvas token
@@ -21,7 +22,7 @@ from collections import Counter
 
 from . import sync as S
 from .canvas import Canvas
-from .naming import course_folder_name
+from .naming import course_folder_name, sanitize
 from .workspace import DEFAULT_CONFIG, TOKEN_FILE, Workspace, read_token, write_secret
 
 
@@ -120,7 +121,13 @@ def cmd_init(args):
     ws.save_config()
     print(f"Term: {ws.config['term']}  (change with `coursework init --term \"Spring 2027\"`)")
     this_term = [x for x in courses if x["term"] == ws.config["term"]]
-    show_courses(ws, this_term)
+    from .terms import infer_buckets
+    buckets = infer_buckets(c, [x["id"] for x in this_term])
+    if args.group_by_term is not None:
+        ws.config["group_by_term"] = args.group_by_term
+        ws.save_config()
+        regroup(ws, buckets)
+    show_courses(ws, this_term, buckets)
 
     to_add = []
     if args.add == "all":
@@ -142,7 +149,7 @@ def cmd_init(args):
             for cid in wanted - {x["id"] for x in to_add}:
                 print(f"  ! {cid} is not in the list above; skipped")
     for x in to_add:
-        add_course(ws, x)
+        add_course(ws, x, bucket=buckets.get(x["id"]))
     ws.save_config()
     if ws.config["courses"]:
         print("\nNext: `coursework sync --dry-run` to preview, then `coursework sync`.")
@@ -150,21 +157,29 @@ def cmd_init(args):
         print("\nNo courses yet. Add one with `coursework add <id>`.")
 
 
-def show_courses(ws, courses):
-    print(f"\n{'id':>7}  {'role':<9} {'set up as':<34} name")
+def show_courses(ws, courses, buckets=None):
+    buckets = buckets or {}
+    print(f"\n{'id':>7}  {'role':<9} {'when':<10} {'set up as':<34} name")
     for x in sorted(courses, key=lambda x: x["name"]):
         cfg = ws.config["courses"].get(x["id"])
         here = (cfg["folder"] + (" (dropped)" if cfg.get("skip") else "")) if cfg else "—"
-        print(f"{x['id']:>7}  {','.join(x['roles']):<9} {here[:34]:<34} {x['name'][:60]}")
+        when = buckets.get(x["id"]) or "?"
+        print(f"{x['id']:>7}  {','.join(x['roles']):<9} {when:<10} {here[:34]:<34} {x['name'][:56]}")
     if any("ta" in x["roles"] or "teacher" in x["roles"] for x in courses):
         print("\nNote: in courses where you're a TA, only course materials are ever "
               "read — student work, names and grades are blocked in the code.")
+    if buckets:
+        print("'when' is worked out from the class dates on the calendar ('?' = no dated "
+              "sessions). With --group-by-term, folders go under A-term/, B-term/, "
+              "Full Term/ or Block Week/.")
 
 
-def add_course(ws, x, folder=None):
+def add_course(ws, x, folder=None, bucket=None):
     folder = folder or course_folder_name(x["name"])
+    if ws.config.get("group_by_term") and "/" not in folder and bucket:
+        folder = f"{bucket}/{folder}"
     ws.config["courses"][x["id"]] = {"folder": folder, "canvas_name": x["name"],
-                                     "roles": x["roles"], "routes": []}
+                                     "roles": x["roles"], "routes": [], "when": bucket}
     os.makedirs(ws.abspath(folder), exist_ok=True)
     print(f"  + {folder}  (Canvas {x['id']})")
 
@@ -188,8 +203,66 @@ def cmd_add(args):
             ws.config["courses"][cid].pop("skip", None)
             print(f"  = {ws.config['courses'][cid]['folder']} (already set up; re-enabled)")
             continue
-        add_course(ws, courses[cid], args.as_name if len(args.ids) == 1 else None)
+        bucket = args.when
+        if not bucket and ws.config.get("group_by_term"):
+            from .terms import infer_buckets
+            bucket = infer_buckets(canvas_for(ws), [cid]).get(cid)
+        add_course(ws, courses[cid], args.as_name if len(args.ids) == 1 else None, bucket)
     ws.save_config()
+
+
+def rename_course(ws, cid, new):
+    """Move a course folder and update every record that points into it.
+
+    Works whether or not you've already moved it yourself (in Finder or Drive):
+    if the old folder is gone and the new one exists, only the records change."""
+    cfg = ws.config["courses"][cid]
+    old = cfg["folder"]
+    new = "/".join(sanitize(p) for p in new.split("/") if p.strip())
+    if not new or new == old:
+        return old
+    src, dst = ws.abspath(old), ws.abspath(new)
+    if os.path.exists(src) and os.path.exists(dst):
+        sys.exit(f"Can't rename to '{new}': that folder already exists.")
+    if os.path.exists(src):
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        os.rename(src, dst)
+        parent = os.path.dirname(src)
+        if parent != ws.root and os.path.isdir(parent) and not os.listdir(parent):
+            os.rmdir(parent)  # an emptied A-term/ etc.
+    elif not os.path.exists(dst):
+        print(f"  note: neither '{old}' nor '{new}' exists yet; only the records change")
+    from .workspace import load_json, save_json
+    for led_file, led in ((ws.ledger_file, ws.ledger), (ws.echo_ledger_file, load_json(ws.echo_ledger_file, {}))):
+        for e in led.values():
+            if e.get("course_id") == cid or e.get("course") == old:
+                e["course"] = new
+                sp = e.get("saved_to") or ""
+                if sp == old or sp.startswith(old + "/"):
+                    e["saved_to"] = new + sp[len(old):]
+        save_json(led_file, led)
+    ws._ledger = None
+    cfg["folder"] = new
+    ws.save_config()
+    print(f"  {old}  →  {new}")
+    return new
+
+
+def regroup(ws, buckets):
+    for cid, cfg in ws.config["courses"].items():
+        name = cfg["folder"].rsplit("/", 1)[-1]
+        bucket = cfg.get("when") or buckets.get(cid)
+        if ws.config.get("group_by_term"):
+            if bucket and "/" not in cfg["folder"]:
+                cfg["when"] = bucket
+                rename_course(ws, cid, f"{bucket}/{name}")
+        elif cfg["folder"].split("/", 1)[0] in ("A-term", "B-term", "Full Term", "Block Week"):
+            rename_course(ws, cid, name)
+
+
+def cmd_rename(args):
+    ws = get_ws(args)
+    rename_course(ws, ws.resolve_course(args.course), args.new_name)
 
 
 def cmd_drop(args):
@@ -263,6 +336,11 @@ def cmd_verify(args):
     print(f"2. every file is on disk:  {'PASS' if not missing else f'FAIL ({len(missing)} missing)'}")
     for _fid, e in missing[:20]:
         print(f"     missing  {e['saved_to']}")
+    gone = [c["folder"] for c in ws.config["courses"].values()
+            if not c.get("skip") and not os.path.isdir(ws.abspath(c["folder"]))]
+    for f in gone:
+        print(f"   The folder '{f}' is gone. Renamed it yourself? "
+              f"`coursework rename \"{f}\" \"<new name>\"` reconnects it.")
     if missing and not args.fix:
         print("   Moved or renamed them? `coursework verify --fix` re-finds them.\n"
               "   Deleted on purpose? `coursework ignore <path>` so they stay gone.")
@@ -323,6 +401,11 @@ def main(argv=None):
     p.add_argument("--add", help="'all' or comma-separated course ids (skips the prompt)")
     p.add_argument("--canvas-url", help="only if your school is not Columbia")
     p.add_argument("--max-mb", type=float, help="this folder's size cap; 0 = none (default 30)")
+    g = p.add_mutually_exclusive_group()
+    g.add_argument("--group-by-term", dest="group_by_term", action="store_true", default=None,
+                   help="put courses under A-term/, B-term/, Full Term/, Block Week/ (moves existing ones)")
+    g.add_argument("--no-group-by-term", dest="group_by_term", action="store_false",
+                   help="one flat folder per course (moves existing ones back)")
     p.set_defaults(fn=cmd_init)
 
     p = sub.add_parser("token", help="save your Canvas token")
@@ -337,7 +420,14 @@ def main(argv=None):
     p = sub.add_parser("add", help="start syncing a course")
     p.add_argument("ids", nargs="+")
     p.add_argument("--as", dest="as_name", help='folder name, e.g. "PM" or "A-term/PM"')
+    p.add_argument("--when", choices=["A-term", "B-term", "Full Term", "Block Week"],
+                   help="which part of the term, when it can't be worked out")
     p.set_defaults(fn=cmd_add)
+
+    p = sub.add_parser("rename", help="rename (or move) a course folder, keeping its sync history")
+    p.add_argument("course")
+    p.add_argument("new_name", help='e.g. "PM" or "A-term/PM"')
+    p.set_defaults(fn=cmd_rename)
 
     p = sub.add_parser("drop", help="stop syncing a course (keeps files)")
     p.add_argument("course")

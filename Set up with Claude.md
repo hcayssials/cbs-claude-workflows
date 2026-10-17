@@ -126,9 +126,11 @@ This creates the hidden `.coursework/` folder, detects the current term, and pri
 user's courses for that term with their role in each. Because you aren't at an
 interactive terminal, it won't add any courses itself. That's intended.
 
-Show the user the list as a short table (course name and role) and ask which to sync.
-Suggest "all the ones where you're a student". Point out any **TA** courses: syncing
-them is allowed (only course materials are read), but most TAs don't want them, so ask.
+Show the user the list as a short table (course name, role, and the **when** column:
+A-term, B-term, Full Term or Block Week, worked out from the class dates) and ask which
+to sync. Suggest "all the ones where you're a student". Point out any **TA** courses:
+syncing them is allowed (only course materials are read), but most TAs don't want them,
+so ask.
 
 If the term looks wrong (for example last term's courses), ask which term they mean and
 run `coursework init --term "Spring 2027"` (using the term name exactly as Canvas lists it).
@@ -140,15 +142,32 @@ choose another limit, save it for the folder so every later sync and check uses 
 for this: that applies to one run only, and `verify` would then report the skipped files
 as missing.
 
-### Step 5: Add the courses
+### Step 5: Folder layout, then add the courses
+
+Ask two things in one message, showing the folder names they'd get:
+
+1. **Group by term?** *"Want your courses grouped into A-term / B-term / Full Term /
+   Block Week folders, or one flat folder per course?"* If grouped:
+   `coursework init --group-by-term`. A course whose *when* is `?` needs one from them:
+   add it with `--when "A-term"` (or B-term, Full Term, Block Week).
+2. **Shorter names?** Folder names default to the official course name without the
+   professor or term code, which can be long ("The U.S. Healthcare System_ Structure
+   and Strategies"). Offer short names (e.g. "US Healthcare", "PM", "TIP") and use the
+   ones they want.
+
+Then add the courses:
 
 ```bash
 coursework add <id> <id> …
 ```
 
-Folder names default to the official course name without the professor or term code
-("Product Management"). If the user wants a shorter name for one, use
-`coursework add <id> --as "PM"`, one course per command.
+For a course they want renamed: `coursework add <id> --as "US Healthcare"`, one course
+per command. (With grouping on, the term folder is added for you.)
+
+Tell them they can rename or regroup any time by asking you. It runs
+`coursework rename "<course>" "<new name>"` so nothing re-downloads. If they rename a
+folder in Finder or Drive themselves, that's fine too: the next `verify` notices and the
+same command reconnects it.
 
 ### Step 6: Preview, then download
 
@@ -165,6 +184,12 @@ Summarise per course: how many files would land, and anything in the notes. Then
 - `PREFIXED`: some files will be named `S03 …` because the Canvas calendar assigns them
   to session 3. Mention it in one line.
 - `LOCKED`: a professor linked a file students can't download. Nothing to do.
+- `LINKS`: readings that are links, not files, so they can't be downloaded. Always
+  mention these, with the count per course, and say **Harvard coursepack** cases first:
+  those need buying or downloading by hand from the Harvard link on Canvas. Every one is
+  listed by session in that course's `Canvas_Links.md`, and gets a ✓ once the user saves
+  the PDF into the course folder. Some courses have long *recommended* reading lists of
+  web articles; say so rather than presenting them as missing.
 
 On their go-ahead:
 
@@ -192,6 +217,8 @@ Keep it short:
 
 - What landed: the course folders, roughly how many files each, and that each course has
   `Canvas_Assignments.md` with every assignment description.
+- **What didn't, and why:** files over the cap (named), and readings that are only links
+  (count per course, Harvard coursepack cases first). Point to `Canvas_Links.md`.
 - That nothing else was added to their folder, except a hidden `.coursework/` folder they
   should leave alone, and this file.
 - **What they can say from now on.** The skills load in new Claude sessions, so they work

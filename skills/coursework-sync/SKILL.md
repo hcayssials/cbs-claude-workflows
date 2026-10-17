@@ -40,6 +40,9 @@ directory. Pass `--root "<folder>"` when you're running from somewhere else.
 | "just PM" | `coursework sync "Product Management"` (a partial name works) |
 | "add Negotiations" | `coursework courses`, confirm the id, `coursework add <id>` |
 | "I dropped X" | `coursework drop "X"` (keeps the files) |
+| "rename PM to …" / "the names are too long" | `coursework rename "<course>" "<new name>"`. Never rename course folders with `mv`: the sync's records would point at the old name |
+| "group by term" / "flatten the folders" | `coursework init --group-by-term` / `--no-group-by-term` (moves the folders and keeps the records) |
+| "what's missing?" / "which cases do I need to buy?" | Read the `LINKS` notes and the course's `Canvas_Links.md`: Harvard coursepack cases first, ☐ = not saved yet |
 | "get the big slide deck" | `coursework sync "<course>" --max-mb 0` (this run only) |
 | "only small files" / "no size limit" | `coursework init --max-mb <N>` saves it for the folder (`0` = none). Don't use `sync --max-mb` for a lasting change: `verify` would disagree |
 | "did it miss hidden files?" | Besides the Files tab, sync scans the Syllabus page, calendar events, pages, modules, announcements and assignment descriptions. Files over the cap are listed as TOO-LARGE, not missed |
@@ -51,6 +54,11 @@ directory. Pass `--root "<folder>"` when you're running from somewhere else.
 
 - `note LOCKED`: a professor linked a file that students can't download. Nothing to fix.
 - `note TOO-LARGE`: skipped because it's over 30 MB. Name the file and offer `--max-mb 0`.
+- `note LINKS`: readings that are links, not files (Harvard coursepack, other Canvas
+  tools, web articles), listed by session in `Canvas_Links.md`. Always mention them, so
+  the user knows to get the coursepack cases themselves.
+- verify says a course folder "is gone": the user renamed it. Ask what they renamed it
+  to, then `coursework rename "<old>" "<new>"`.
 - `note PREFIXED`: new files were named `S03 …` from the Canvas calendar. Say how many,
   and offer to show the list: `grep PREFIXED .coursework/changes.log | tail -40`.
 - `note FLATTENED`: Canvas folders deeper than 3 levels were collapsed. Offer to add a
@@ -66,7 +74,8 @@ directory. Pass `--root "<folder>"` when you're running from somewhere else.
   .coursework/                 state (don't edit)
   <Course>/
     Canvas_Assignments.md      every assignment description, rewritten each sync
-    Readings/S03 ….pdf         files linked from calendar events and pages
+    Canvas_Links.md            readings that are links, not files (coursepack cases, articles)
+    Readings/S03 ….pdf         session readings: linked from the calendar, or loose ones it assigns
     Assignments/….pdf          files linked only from assignment descriptions
     Transcripts/S07 Transcript.txt
     …professor's own folders, mirrored from the Files tab
