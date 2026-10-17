@@ -4,7 +4,7 @@
     Windows:       py install.py                 (or: python install.py)
     Add --echo360 to also install the lecture-transcripts add-on (a headless browser).
 
-It installs one Python package (requests), a `coursework` command, and the two Claude
+It installs one Python package (requests), a `coursework` command, and the three Claude
 skills, then prints the exact command to run the tool with on this computer.
 """
 
@@ -66,7 +66,7 @@ def main():
           f"     Not on your PATH, so use the full command below (or add {posix(BIN)} to PATH).")
 
     print("3/3  Claude Code skills -> ~/.claude/skills/")
-    for skill in ("coursework-sync", "master-takeaways"):
+    for skill in ("coursework-sync", "master-takeaways", "draft-audit"):
         dest = os.path.join(HOME, ".claude", "skills", skill)
         os.makedirs(dest, exist_ok=True)
         with open(os.path.join(REPO, "skills", skill, "SKILL.md"), encoding="utf-8") as fh:

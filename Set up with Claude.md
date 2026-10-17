@@ -86,7 +86,7 @@ downloaded. That's expected: please approve it."*
 PY ~/cbs-claude-workflows/install.py
 ```
 
-This installs one Python package (`requests`), a `coursework` command, and two Claude
+This installs one Python package (`requests`), a `coursework` command, and three Claude
 skills in `~/.claude/skills/`. It ends by printing **the exact command for this
 computer**, also saved in `~/.config/coursework/command.txt`. For the rest of this setup,
 `coursework` means that command: use it as printed (it works in Git Bash on Windows too).
@@ -233,6 +233,7 @@ Keep it short:
   - "Sync my classes": pulls anything new (safe any time).
   - "What do I need for my next class?": readings, prep notes and deadlines.
   - "Make the master takeaways for <course>": a study doc for the class.
+  - "Audit my draft": checks a paper or deck before they submit it.
 - Optional later: lecture transcripts from Echo360 (needs their UNI + Duo). Say
   "set up Echo360 transcripts" another time.
 

@@ -18,9 +18,10 @@ Canvas ──coursework sync──▶ your term folder ──Echo360 add-on─�
    assignment description. Run it whenever you like:
    it only fetches what's new.
 2. **Echo360 add-on** (optional): pulls lecture transcripts as plain text.
-3. **Two Claude skills**: one so Claude can run all of this for you ("sync my
-   classes"), and one that turns a course folder into a `Master Takeaways` study doc
-   and keeps it updated as transcripts arrive.
+3. **Three Claude skills**: one so Claude can run all of this for you ("sync my
+   classes"), one that turns a course folder into a `Master Takeaways` study doc and
+   keeps it updated as transcripts arrive, and a [draft audit](#draft-audit) for any paper
+   before you submit it.
 
 Built for Columbia CourseWorks. It works for any Canvas school with one setting change
 (see [Not at Columbia?](#not-at-columbia)).
@@ -207,6 +208,20 @@ rather than as a pile of versions. Using the Claude desktop or web app instead? 
 `skills/master-takeaways/` and upload it as a custom skill in Claude's settings.
 
 ---
+
+## Draft audit
+
+The third skill has nothing to do with Canvas: a reviewer for any finished paper, memo or
+deck, run before you submit. In Claude Code, from the folder with the draft:
+
+> Audit my draft before I submit it.
+
+It reads everything first (body, figures, tables, appendices, the brief), then checks:
+every number agrees wherever it appears, every source says what it's cited for (it fetches
+them), the AI-sounding tics are counted rather than asserted, and every requirement in the
+brief is met. You get findings ranked by how likely they are to be noticed and how cheap
+they are to fix, what *not* to change, and where to stop if you're short on time. It
+doesn't edit unless you ask.
 
 ## Safe by design
 
