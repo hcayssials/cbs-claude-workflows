@@ -17,5 +17,9 @@ courses should follow `skills/coursework-sync/SKILL.md` instead.
   can be moved without breaking anything. Don't store absolute paths.
 - Session prefixes (`S03 …`) come only from a calendar event linking that exact file.
   Don't add inference.
+- Must run on Windows too: open text files with `encoding="utf-8"`, store ledger paths
+  with `/` (`ws.relpath`), no `%-d`-style strftime, and no nested same-quote f-strings
+  (Python 3.9 is supported). `python -m unittest discover -s tests` runs the end-to-end
+  test; CI runs it on Windows, Mac and Linux, Python 3.9 and 3.13.
 - Test against a scratch folder: `coursework init /tmp/x --add <id>`, then `cd /tmp/x`, then
   `sync --dry-run`, `sync`, `verify` (must print VERIFIED), and a second `verify`.

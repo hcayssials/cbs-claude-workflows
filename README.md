@@ -1,5 +1,7 @@
 # CBS Claude workflows
 
+[![tests on Windows, Mac and Linux](https://github.com/hcayssials/cbs-claude-workflows/actions/workflows/test.yml/badge.svg)](https://github.com/hcayssials/cbs-claude-workflows/actions/workflows/test.yml)
+
 Most AI use at school is "ask a question, get an answer". This repo is the other
 kind: **a workflow that runs every week and does the boring part for you**, so the
 AI's time goes to the part that's actually worth it.
